@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
+import queue
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -24,6 +27,8 @@ IMPLEMENTER_AGENT = 'local-minion/implementer'
 ALLOWED_MODELS = ('gpt-4.1', 'gpt-5-mini')
 RUNNING_STATUSES = {'queued', 'running'}
 TERMINAL_STATUSES = {'complete', 'failed', 'interrupted'}
+ACTIVE_PROCESSES: dict[str, subprocess.Popen[str]] = {}
+ACTIVE_PROCESSES_LOCK = threading.Lock()
 
 
 class QueueLike(Protocol):
@@ -35,6 +40,10 @@ class MinionExecutionError(RuntimeError):
     pass
 
 
+class ControlRequestedError(MinionExecutionError):
+    pass
+
+
 @dataclass(slots=True)
 class TaskContext:
     task_id: str
@@ -42,6 +51,13 @@ class TaskContext:
     branch_name: str
     minion_designation: str
     task_type: str
+
+
+@dataclass(slots=True)
+class CommandResult:
+    returncode: int
+    stdout: str
+    stderr: str
 
 
 def should_skip_implementation(task_id: str) -> bool:
@@ -130,6 +146,18 @@ def initialize_database() -> sqlite3.Connection:
             active_model TEXT,
             reflection_attempts INTEGER NOT NULL DEFAULT 0,
             last_error TEXT,
+            control_state TEXT NOT NULL DEFAULT 'idle',
+            control_requested_at TEXT,
+            control_completed_at TEXT,
+            worktree_cleanup_status TEXT NOT NULL DEFAULT 'pending',
+            retry_of_task_id TEXT,
+            retry_sequence INTEGER NOT NULL DEFAULT 0,
+            finalize_summary TEXT,
+            commit_sha TEXT,
+            remote_name TEXT,
+            remote_url TEXT,
+            push_status TEXT,
+            pull_request_status TEXT,
             started_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             completed_at TEXT
@@ -187,6 +215,18 @@ def initialize_database() -> sqlite3.Connection:
     ensure_column(connection, 'runs', 'active_model', 'TEXT')
     ensure_column(connection, 'runs', 'reflection_attempts', 'INTEGER NOT NULL DEFAULT 0')
     ensure_column(connection, 'runs', 'last_error', 'TEXT')
+    ensure_column(connection, 'runs', 'control_state', "TEXT NOT NULL DEFAULT 'idle'")
+    ensure_column(connection, 'runs', 'control_requested_at', 'TEXT')
+    ensure_column(connection, 'runs', 'control_completed_at', 'TEXT')
+    ensure_column(connection, 'runs', 'worktree_cleanup_status', "TEXT NOT NULL DEFAULT 'pending'")
+    ensure_column(connection, 'runs', 'retry_of_task_id', 'TEXT')
+    ensure_column(connection, 'runs', 'retry_sequence', 'INTEGER NOT NULL DEFAULT 0')
+    ensure_column(connection, 'runs', 'finalize_summary', 'TEXT')
+    ensure_column(connection, 'runs', 'commit_sha', 'TEXT')
+    ensure_column(connection, 'runs', 'remote_name', 'TEXT')
+    ensure_column(connection, 'runs', 'remote_url', 'TEXT')
+    ensure_column(connection, 'runs', 'push_status', 'TEXT')
+    ensure_column(connection, 'runs', 'pull_request_status', 'TEXT')
     ensure_column(connection, 'runs', 'completed_at', 'TEXT')
 
     connection.execute(
@@ -202,7 +242,8 @@ def initialize_database() -> sqlite3.Connection:
 
     rows_needing_backfill = connection.execute(
         '''
-        SELECT task_id, task_type, minion_designation, current_phase, active_model, completed_at, updated_at, status
+          SELECT task_id, task_type, minion_designation, current_phase, active_model, completed_at, updated_at, status,
+                    control_state, worktree_cleanup_status
         FROM runs
         WHERE task_type IS NULL
            OR task_type = ''
@@ -212,6 +253,10 @@ def initialize_database() -> sqlite3.Connection:
            OR current_phase = ''
            OR active_model IS NULL
            OR active_model = ''
+              OR control_state IS NULL
+              OR control_state = ''
+              OR worktree_cleanup_status IS NULL
+              OR worktree_cleanup_status = ''
            OR (completed_at IS NULL AND status IN ('complete', 'failed', 'interrupted'))
         '''
     ).fetchall()
@@ -221,6 +266,8 @@ def initialize_database() -> sqlite3.Connection:
         inferred_phase = row['current_phase'] or ('finalize' if row['status'] in TERMINAL_STATUSES else 'unknown')
         inferred_model = row['active_model'] or ('diagnostic-only' if inferred_task_type == 'diagnostic' else 'idle')
         inferred_completed_at = row['completed_at'] or (row['updated_at'] if row['status'] in TERMINAL_STATUSES else None)
+        inferred_control_state = row['control_state'] or 'idle'
+        inferred_cleanup_status = row['worktree_cleanup_status'] or ('available' if row['status'] in TERMINAL_STATUSES else 'pending')
         connection.execute(
             '''
             UPDATE runs
@@ -228,6 +275,8 @@ def initialize_database() -> sqlite3.Connection:
                 minion_designation = ?,
                 current_phase = ?,
                 active_model = ?,
+                control_state = ?,
+                worktree_cleanup_status = ?,
                 completed_at = COALESCE(completed_at, ?)
             WHERE task_id = ?
             ''',
@@ -236,6 +285,8 @@ def initialize_database() -> sqlite3.Connection:
                 inferred_designation,
                 inferred_phase,
                 inferred_model,
+                inferred_control_state,
+                inferred_cleanup_status,
                 inferred_completed_at,
                 row['task_id'],
             ),
@@ -257,9 +308,14 @@ def serialize_run(row: sqlite3.Row) -> dict[str, Any]:
     payload['minion_designation'] = payload.get('minion_designation') or build_minion_designation(payload['task_id'])
     payload['current_phase'] = payload.get('current_phase') or ('finalize' if payload.get('status') in TERMINAL_STATUSES else 'unknown')
     payload['active_model'] = payload.get('active_model') or ('diagnostic-only' if payload['task_type'] == 'diagnostic' else 'idle')
+    payload['control_state'] = payload.get('control_state') or 'idle'
+    payload['worktree_cleanup_status'] = payload.get('worktree_cleanup_status') or ('available' if payload.get('status') in TERMINAL_STATUSES else 'pending')
     payload['elapsed_seconds'] = calculate_duration_seconds(payload.get('started_at'), payload.get('completed_at'))
     payload['is_active'] = payload.get('status') in RUNNING_STATUSES
     payload['worktree_name'] = Path(payload['worktree_path']).name if payload.get('worktree_path') else None
+    payload['can_cancel'] = payload['is_active'] and payload['control_state'] != 'cancel-requested'
+    payload['can_retry'] = payload.get('status') in TERMINAL_STATUSES
+    payload['can_cleanup'] = (not payload['is_active']) and bool(payload.get('worktree_path')) and payload['worktree_cleanup_status'] not in {'removed', 'missing', 'not-applicable'}
     return payload
 
 
@@ -294,6 +350,18 @@ def update_run(connection: sqlite3.Connection, task_id: str, **fields: Any) -> N
             'active_model': 'idle',
             'reflection_attempts': 0,
             'last_error': None,
+            'control_state': 'idle',
+            'control_requested_at': None,
+            'control_completed_at': None,
+            'worktree_cleanup_status': 'pending',
+            'retry_of_task_id': None,
+            'retry_sequence': 0,
+            'finalize_summary': None,
+            'commit_sha': None,
+            'remote_name': None,
+            'remote_url': None,
+            'push_status': None,
+            'pull_request_status': None,
             'started_at': now,
             'updated_at': now,
             'completed_at': None,
@@ -389,26 +457,297 @@ def build_copilot_command(prompt: str, model: str) -> list[str]:
     ]
 
 
-def run_checked(command: list[str], cwd: Path, phase: str, log_queue: QueueLike | None) -> subprocess.CompletedProcess[str]:
+def get_run_row(connection: sqlite3.Connection, task_id: str) -> sqlite3.Row | None:
+    return connection.execute('SELECT * FROM runs WHERE task_id = ?', (task_id,)).fetchone()
+
+
+def is_cancel_requested(connection: sqlite3.Connection, task_id: str) -> bool:
+    row = get_run_row(connection, task_id)
+    return bool(row and row['control_state'] == 'cancel-requested')
+
+
+def register_active_process(task_id: str, process: subprocess.Popen[str]) -> None:
+    with ACTIVE_PROCESSES_LOCK:
+        ACTIVE_PROCESSES[task_id] = process
+
+
+def clear_active_process(task_id: str, process: subprocess.Popen[str]) -> None:
+    with ACTIVE_PROCESSES_LOCK:
+        if ACTIVE_PROCESSES.get(task_id) is process:
+            ACTIVE_PROCESSES.pop(task_id, None)
+
+
+def terminate_process(process: subprocess.Popen[str]) -> None:
+    if process.poll() is not None:
+        return
+
+    if os.name == 'nt':
+        subprocess.run(
+            ['taskkill', '/PID', str(process.pid), '/T', '/F'],
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            check=False,
+        )
+    else:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+
+
+def request_task_cancel(task_id: str) -> dict[str, Any]:
+    connection = initialize_database()
+    try:
+        row = get_run_row(connection, task_id)
+        if row is None:
+            raise MinionExecutionError(f'Task {task_id} was not found.')
+        if row['status'] in TERMINAL_STATUSES:
+            return serialize_run(row)
+
+        now = utc_now()
+        update_run(
+            connection,
+            task_id,
+            control_state='cancel-requested',
+            control_requested_at=now,
+            control_completed_at=None,
+        )
+        record_event(connection, task_id, 'control', 'Cancel requested from dashboard')
+        with ACTIVE_PROCESSES_LOCK:
+            process = ACTIVE_PROCESSES.get(task_id)
+        if process is not None:
+            terminate_process(process)
+        updated = get_run_row(connection, task_id)
+        return serialize_run(updated) if updated is not None else {'task_id': task_id, 'control_state': 'cancel-requested'}
+    finally:
+        connection.close()
+
+
+def get_next_retry_identifier(task_id: str) -> tuple[str, int]:
+    connection = initialize_database()
+    try:
+        row = get_run_row(connection, task_id)
+        if row is None:
+            raise MinionExecutionError(f'Task {task_id} was not found.')
+        if row['status'] not in TERMINAL_STATUSES:
+            raise MinionExecutionError(f'Task {task_id} must be complete, failed, or interrupted before it can be retried.')
+
+        retry_source = row['retry_of_task_id'] or task_id
+        next_sequence = int(
+            connection.execute(
+                'SELECT COALESCE(MAX(retry_sequence), 0) + 1 FROM runs WHERE task_id = ? OR retry_of_task_id = ?',
+                (retry_source, retry_source),
+            ).fetchone()[0]
+        )
+        return f'{retry_source}-retry-{next_sequence}', next_sequence
+    finally:
+        connection.close()
+
+
+def cleanup_task_worktree_with_connection(
+    connection: sqlite3.Connection,
+    task_id: str,
+    *,
+    event_phase: str,
+    update_control_state: bool,
+) -> dict[str, Any]:
+    row = get_run_row(connection, task_id)
+    if row is None:
+        raise MinionExecutionError(f'Task {task_id} was not found.')
+    if row['status'] in RUNNING_STATUSES:
+        raise MinionExecutionError(f'Task {task_id} is still active and cannot be cleaned up.')
+
+    base_updates: dict[str, Any] = {}
+    if update_control_state:
+        base_updates['control_state'] = 'cleanup-complete'
+        base_updates['control_completed_at'] = utc_now()
+
+    worktree_path = row['worktree_path']
+    if not worktree_path:
+        update_run(connection, task_id, worktree_cleanup_status='not-applicable', **base_updates)
+        record_event(connection, task_id, event_phase, 'Cleanup skipped because no worktree path was recorded')
+    elif not Path(worktree_path).exists():
+        update_run(connection, task_id, worktree_cleanup_status='missing', **base_updates)
+        record_event(connection, task_id, event_phase, 'Cleanup completed because the worktree directory was already absent')
+    else:
+        result = subprocess.run(
+            ['git', 'worktree', 'remove', '--force', worktree_path],
+            cwd=str(MINION_ROOT),
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            check=False,
+        )
+        if result.returncode != 0:
+            update_run(connection, task_id, worktree_cleanup_status='failed')
+            raise MinionExecutionError(result.stderr.strip() or result.stdout.strip() or f'Unable to remove worktree for task {task_id}.')
+        update_run(connection, task_id, worktree_cleanup_status='removed', **base_updates)
+        record_event(connection, task_id, event_phase, f'Worktree cleanup completed for {worktree_path}')
+
+    updated = get_run_row(connection, task_id)
+    return serialize_run(updated) if updated is not None else {'task_id': task_id, 'worktree_cleanup_status': 'removed'}
+
+
+def cleanup_task_worktree(task_id: str) -> dict[str, Any]:
+    connection = initialize_database()
+    try:
+        return cleanup_task_worktree_with_connection(
+            connection,
+            task_id,
+            event_phase='control',
+            update_control_state=True,
+        )
+    finally:
+        connection.close()
+
+
+def ensure_branch_visible_in_graph(context: TaskContext, connection: sqlite3.Connection, log_queue: QueueLike | None) -> None:
+    marker_message = f'Initialize Local Minion task branch for {context.task_id}'
+    result = execute_process(
+        [
+            'git',
+            '-c', 'user.name=Local Minion',
+            '-c', 'user.email=local-minion@users.noreply.github.com',
+            'commit', '--allow-empty', '-m', marker_message,
+        ],
+        cwd=context.worktree_path,
+        phase='setup',
+        task_id=context.task_id,
+        connection=connection,
+        log_queue=log_queue,
+    )
+    if result.returncode != 0:
+        raise MinionExecutionError(f'Unable to create branch marker commit for {context.task_id}.')
+
+
+def should_auto_cleanup_worktree(context: TaskContext) -> bool:
+    return context.task_type == 'diagnostic'
+
+
+def auto_cleanup_finished_worktree(context: TaskContext, connection: sqlite3.Connection, log_queue: QueueLike | None) -> None:
+    if not should_auto_cleanup_worktree(context):
+        return
+
+    try:
+        cleanup_task_worktree_with_connection(
+            connection,
+            context.task_id,
+            event_phase='system',
+            update_control_state=False,
+        )
+        emit_log(f'[cleanup] auto-removed diagnostic worktree for {context.task_id}', log_queue)
+    except MinionExecutionError as error:
+        record_event(connection, context.task_id, 'system', f'Automatic cleanup failed: {error}')
+        emit_log(f'[cleanup] automatic cleanup failed for {context.task_id}: {error}', log_queue)
+
+
+def drain_stream(stream: Any, channel: str, output_queue: queue.Queue[tuple[str, str]]) -> None:
+    try:
+        for line in iter(stream.readline, ''):
+            if line:
+                output_queue.put((channel, line.rstrip()))
+    finally:
+        stream.close()
+
+
+def execute_process(
+    command: list[str],
+    *,
+    cwd: Path,
+    phase: str,
+    task_id: str,
+    connection: sqlite3.Connection,
+    log_queue: QueueLike | None,
+    log_stdout: bool = True,
+    log_stderr: bool = True,
+) -> CommandResult:
     emit_log(f'[{phase}] running: {subprocess.list2cmdline(command)}', log_queue)
-    result = subprocess.run(
+    process = subprocess.Popen(
         command,
         cwd=str(cwd),
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
         encoding='utf-8',
         errors='replace',
-        check=False,
+        bufsize=1,
     )
-    if result.stdout.strip():
-        for line in result.stdout.splitlines():
-            emit_log(f'[{phase}] {line}', log_queue)
-    if result.stderr.strip():
-        for line in result.stderr.splitlines():
-            emit_log(f'[{phase}] {line}', log_queue)
-    if result.returncode != 0:
-        raise MinionExecutionError(f'{phase} failed with exit code {result.returncode}.')
-    return result
+    register_active_process(task_id, process)
+
+    output_queue: queue.Queue[tuple[str, str]] = queue.Queue()
+    threads = []
+    for stream, channel in ((process.stdout, 'stdout'), (process.stderr, 'stderr')):
+        if stream is None:
+            continue
+        worker = threading.Thread(target=drain_stream, args=(stream, channel, output_queue), daemon=True)
+        worker.start()
+        threads.append(worker)
+
+    stdout_lines: list[str] = []
+    stderr_lines: list[str] = []
+    cancellation_requested = False
+
+    try:
+        while True:
+            while True:
+                try:
+                    channel, line = output_queue.get_nowait()
+                except queue.Empty:
+                    break
+                if channel == 'stdout':
+                    stdout_lines.append(line)
+                    if log_stdout and line:
+                        emit_log(f'[{phase}] {line}', log_queue)
+                        record_event(connection, task_id, phase, line)
+                else:
+                    stderr_lines.append(line)
+                    if log_stderr and line:
+                        emit_log(f'[{phase}] {line}', log_queue)
+                        record_event(connection, task_id, phase, line)
+
+            if process.poll() is not None:
+                break
+
+            if is_cancel_requested(connection, task_id) and not cancellation_requested:
+                cancellation_requested = True
+                emit_log(f'[{phase}] cancellation requested; terminating active process', log_queue)
+                record_event(connection, task_id, 'control', f'Cancelling process during {phase}')
+                terminate_process(process)
+
+            time.sleep(0.1)
+    finally:
+        clear_active_process(task_id, process)
+        for worker in threads:
+            worker.join(timeout=1.0)
+
+    while True:
+        try:
+            channel, line = output_queue.get_nowait()
+        except queue.Empty:
+            break
+        if channel == 'stdout':
+            stdout_lines.append(line)
+            if log_stdout and line:
+                emit_log(f'[{phase}] {line}', log_queue)
+                record_event(connection, task_id, phase, line)
+        else:
+            stderr_lines.append(line)
+            if log_stderr and line:
+                emit_log(f'[{phase}] {line}', log_queue)
+                record_event(connection, task_id, phase, line)
+
+    return_code = process.wait()
+    if cancellation_requested:
+        raise ControlRequestedError(f'Task {task_id} cancelled during {phase}.')
+    return CommandResult(returncode=return_code, stdout='\n'.join(stdout_lines), stderr='\n'.join(stderr_lines))
+
+
+def run_checked(command: list[str], cwd: Path, phase: str, log_queue: QueueLike | None) -> subprocess.CompletedProcess[str]:
+    raise NotImplementedError('run_checked no longer supports execution without task context.')
 
 
 def setup_environment(task_id: str, connection: sqlite3.Connection, log_queue: QueueLike | None) -> TaskContext:
@@ -420,19 +759,20 @@ def setup_environment(task_id: str, connection: sqlite3.Connection, log_queue: Q
     )
     command = ['pwsh', '-NoProfile', '-File', str(ENV_MANAGER_PATH), '-TaskID', task_id]
     emit_log('[setup] invoking env_manager.ps1', log_queue)
-    result = subprocess.run(
-        command,
-        cwd=str(MINION_ROOT),
-        capture_output=True,
-        text=True,
-        encoding='utf-8',
-        errors='replace',
-        check=False,
-    )
-
-    if result.stderr.strip():
-        for line in result.stderr.splitlines():
-            emit_log(f'[setup] {line}', log_queue)
+    try:
+        result = execute_process(
+            command,
+            cwd=MINION_ROOT,
+            phase='setup',
+            task_id=task_id,
+            connection=connection,
+            log_queue=log_queue,
+            log_stdout=False,
+            log_stderr=True,
+        )
+    except ControlRequestedError as error:
+        finish_phase(connection, phase_id, status='interrupted', detail=str(error))
+        raise
 
     raw_stdout = result.stdout.strip()
     if not raw_stdout:
@@ -473,6 +813,7 @@ def setup_environment(task_id: str, connection: sqlite3.Connection, log_queue: Q
         worktree_path=str(worktree_path),
         minion_designation=context.minion_designation,
     )
+    ensure_branch_visible_in_graph(context, connection, log_queue)
     finish_phase(connection, phase_id, status='completed', detail=f'Assigned worktree {worktree_path.name}')
     return context
 
@@ -489,12 +830,16 @@ def hydrate_requirements(context: TaskContext, connection: sqlite3.Connection, l
 def stream_process_output(
     process: subprocess.Popen[str],
     phase: str,
+    phase_id: int,
     task_id: str,
     connection: sqlite3.Connection,
     log_queue: QueueLike | None,
 ) -> int:
     if process.stdout is None:
         raise MinionExecutionError(f'{phase} did not expose stdout for streaming.')
+
+    register_active_process(task_id, process)
+    cancellation_requested = False
 
     while process.poll() is None:
         line = process.stdout.readline()
@@ -505,13 +850,24 @@ def stream_process_output(
         else:
             time.sleep(0.1)
 
+        if is_cancel_requested(connection, task_id) and not cancellation_requested:
+            cancellation_requested = True
+            emit_log(f'[{phase}] cancellation requested; terminating active process', log_queue)
+            record_event(connection, task_id, 'control', f'Cancelling process during {phase}')
+            terminate_process(process)
+
     for line in process.stdout.readlines():
         cleaned = line.rstrip()
         if cleaned:
             emit_log(f'[{phase}] {cleaned}', log_queue)
             record_event(connection, task_id, phase, cleaned)
 
-    return process.wait()
+    clear_active_process(task_id, process)
+    return_code = process.wait()
+    if cancellation_requested:
+        finish_phase(connection, phase_id, status='interrupted', detail=f'Task cancelled during {phase}')
+        raise ControlRequestedError(f'Task {task_id} cancelled during {phase}.')
+    return return_code
 
 
 def run_implementation(context: TaskContext, hydrated_context: str, connection: sqlite3.Connection, log_queue: QueueLike | None) -> None:
@@ -545,7 +901,7 @@ def run_implementation(context: TaskContext, hydrated_context: str, connection: 
         errors='replace',
         bufsize=1,
     )
-    return_code = stream_process_output(process, 'implement', context.task_id, connection, log_queue)
+    return_code = stream_process_output(process, 'implement', phase_id, context.task_id, connection, log_queue)
     if return_code != 0:
         finish_phase(connection, phase_id, status='failed', detail=f'Implementation agent exited with code {return_code}')
         raise MinionExecutionError(f'Implementation agent exited with code {return_code}.')
@@ -616,23 +972,18 @@ def run_validation_attempt(
     phase_id = start_phase(connection, context.task_id, 'validation', detail=detail)
     command = build_test_command(context.worktree_path)
     emit_log('[validation] running PowerShell validation pipeline', log_queue)
-    result = subprocess.run(
-        command,
-        cwd=str(context.worktree_path),
-        capture_output=True,
-        text=True,
-        encoding='utf-8',
-        errors='replace',
-        check=False,
-    )
-    if result.stdout.strip():
-        for line in result.stdout.splitlines():
-            emit_log(f'[validation] {line}', log_queue)
-            record_event(connection, context.task_id, 'validation', line)
-    if result.stderr.strip():
-        for line in result.stderr.splitlines():
-            emit_log(f'[validation] {line}', log_queue)
-            record_event(connection, context.task_id, 'validation', line)
+    try:
+        result = execute_process(
+            command,
+            cwd=context.worktree_path,
+            phase='validation',
+            task_id=context.task_id,
+            connection=connection,
+            log_queue=log_queue,
+        )
+    except ControlRequestedError as error:
+        finish_phase(connection, phase_id, status='interrupted', detail=str(error))
+        raise
 
     status = 'completed' if result.returncode == 0 else 'failed'
     summary = 'Validation succeeded' if result.returncode == 0 else (result.stderr.strip() or result.stdout.strip() or 'Validation failed')
@@ -675,7 +1026,7 @@ def reflect_and_fix(
         errors='replace',
         bufsize=1,
     )
-    return_code = stream_process_output(process, 'reflect', context.task_id, connection, log_queue)
+    return_code = stream_process_output(process, 'reflect', phase_id, context.task_id, connection, log_queue)
     if return_code != 0:
         finish_phase(connection, phase_id, status='failed', detail=f'Reflection attempt {attempt} exited with code {return_code}')
         raise MinionExecutionError(f'Reflection attempt {attempt} exited with code {return_code}.')
@@ -709,12 +1060,35 @@ def finalize(context: TaskContext, connection: sqlite3.Connection, log_queue: Qu
         phase_id = start_phase(connection, context.task_id, 'finalize', detail='Diagnostic self-test skips Git finalization')
         emit_log('[finalize] self-test mode active; skipping commit, push, and pull request creation', log_queue)
         finish_phase(connection, phase_id, status='skipped', detail='Self-test mode active')
-        update_run(connection, context.task_id, status='complete', completed_at=utc_now(), active_model='diagnostic-only')
+        update_run(
+            connection,
+            context.task_id,
+            status='complete',
+            completed_at=utc_now(),
+            active_model='diagnostic-only',
+            finalize_summary='Diagnostic self-test skipped Git finalization.',
+            push_status='skipped',
+            pull_request_status='skipped',
+            worktree_cleanup_status='available',
+        )
         return
 
     phase_id = start_phase(connection, context.task_id, 'finalize', detail='Commit, push, and open pull request')
     emit_log('[finalize] preparing repository for commit and push', log_queue)
-    run_checked(['git', 'add', '.'], context.worktree_path, 'finalize', log_queue)
+    try:
+        result = execute_process(
+            ['git', 'add', '.'],
+            cwd=context.worktree_path,
+            phase='finalize',
+            task_id=context.task_id,
+            connection=connection,
+            log_queue=log_queue,
+        )
+        if result.returncode != 0:
+            raise MinionExecutionError(f'finalize failed with exit code {result.returncode}.')
+    except ControlRequestedError as error:
+        finish_phase(connection, phase_id, status='interrupted', detail=str(error))
+        raise
 
     staged_status = subprocess.run(
         ['git', 'diff', '--cached', '--quiet'],
@@ -728,15 +1102,40 @@ def finalize(context: TaskContext, connection: sqlite3.Connection, log_queue: Qu
     if staged_status.returncode == 0:
         emit_log('[finalize] no staged changes detected after validation; skipping commit, push, and PR creation', log_queue)
         finish_phase(connection, phase_id, status='skipped', detail='No staged changes detected')
-        update_run(connection, context.task_id, status='complete', completed_at=utc_now(), active_model='idle')
+        update_run(
+            connection,
+            context.task_id,
+            status='complete',
+            completed_at=utc_now(),
+            active_model='idle',
+            finalize_summary='Validation completed with no repository changes to commit.',
+            push_status='skipped-no-changes',
+            pull_request_status='skipped-no-changes',
+            worktree_cleanup_status='available',
+        )
         return
 
-    run_checked(
+    commit_result = execute_process(
         ['git', 'commit', '-m', f'Automated Minion Implementation for {context.task_id}'],
-        context.worktree_path,
-        'finalize',
-        log_queue,
+        cwd=context.worktree_path,
+        phase='finalize',
+        task_id=context.task_id,
+        connection=connection,
+        log_queue=log_queue,
     )
+    if commit_result.returncode != 0:
+        finish_phase(connection, phase_id, status='failed', detail='Commit failed')
+        raise MinionExecutionError(f'finalize failed with exit code {commit_result.returncode}.')
+
+    commit_sha = subprocess.run(
+        ['git', 'rev-parse', 'HEAD'],
+        cwd=str(context.worktree_path),
+        capture_output=True,
+        text=True,
+        encoding='utf-8',
+        errors='replace',
+        check=False,
+    ).stdout.strip() or None
 
     remote_check = subprocess.run(
         ['git', 'remote', 'get-url', 'origin'],
@@ -750,22 +1149,76 @@ def finalize(context: TaskContext, connection: sqlite3.Connection, log_queue: Qu
     if remote_check.returncode != 0:
         emit_log('[finalize] no origin remote is configured; skipping push and pull request creation for local run', log_queue)
         finish_phase(connection, phase_id, status='completed', detail='Committed locally; remote not configured')
-        update_run(connection, context.task_id, status='complete', completed_at=utc_now(), active_model='idle')
+        update_run(
+            connection,
+            context.task_id,
+            status='complete',
+            completed_at=utc_now(),
+            active_model='idle',
+            commit_sha=commit_sha,
+            remote_name='origin',
+            remote_url=None,
+            push_status='skipped-no-remote',
+            pull_request_status='skipped-no-remote',
+            finalize_summary='Committed locally; no origin remote was configured.',
+            worktree_cleanup_status='available',
+        )
         return
 
-    run_checked(['git', 'push', '--set-upstream', 'origin', context.branch_name], context.worktree_path, 'finalize', log_queue)
+    remote_url = remote_check.stdout.strip()
+    push_result = execute_process(
+        ['git', 'push', '--set-upstream', 'origin', context.branch_name],
+        cwd=context.worktree_path,
+        phase='finalize',
+        task_id=context.task_id,
+        connection=connection,
+        log_queue=log_queue,
+    )
+    if push_result.returncode != 0:
+        finish_phase(connection, phase_id, status='failed', detail='Push failed')
+        raise MinionExecutionError(f'finalize failed with exit code {push_result.returncode}.')
 
     pr_prompt = (
         'Use the built-in MCP server to open a GitHub pull request for the current branch. '
         f'The task identifier is {context.task_id}.'
     )
-    run_checked(build_copilot_command(pr_prompt, 'gpt-4.1'), context.worktree_path, 'finalize', log_queue)
+    pr_result = execute_process(
+        build_copilot_command(pr_prompt, 'gpt-4.1'),
+        cwd=context.worktree_path,
+        phase='finalize',
+        task_id=context.task_id,
+        connection=connection,
+        log_queue=log_queue,
+    )
+    if pr_result.returncode != 0:
+        finish_phase(connection, phase_id, status='failed', detail='Pull request flow failed')
+        raise MinionExecutionError(f'finalize failed with exit code {pr_result.returncode}.')
     finish_phase(connection, phase_id, status='completed', detail='Commit, push, and pull request flow completed')
-    update_run(connection, context.task_id, status='complete', completed_at=utc_now(), active_model='idle')
+    update_run(
+        connection,
+        context.task_id,
+        status='complete',
+        completed_at=utc_now(),
+        active_model='idle',
+        commit_sha=commit_sha,
+        remote_name='origin',
+        remote_url=remote_url,
+        push_status='pushed',
+        pull_request_status='requested',
+        finalize_summary='Commit, push, and pull request flow completed successfully.',
+        worktree_cleanup_status='available',
+    )
 
 
-def run_task(task_id: str, log_queue: QueueLike | None = None) -> None:
+def run_task(
+    task_id: str,
+    log_queue: QueueLike | None = None,
+    *,
+    retry_of_task_id: str | None = None,
+    retry_sequence: int = 0,
+) -> None:
     connection = initialize_database()
+    context: TaskContext | None = None
     minion_designation = build_minion_designation(task_id)
     task_type = determine_task_type(task_id)
     update_run(
@@ -778,6 +1231,18 @@ def run_task(task_id: str, log_queue: QueueLike | None = None) -> None:
         active_model='idle',
         reflection_attempts=0,
         last_error=None,
+        control_state='idle',
+        control_requested_at=None,
+        control_completed_at=None,
+        retry_of_task_id=retry_of_task_id,
+        retry_sequence=retry_sequence,
+        finalize_summary=None,
+        commit_sha=None,
+        remote_name=None,
+        remote_url=None,
+        push_status=None,
+        pull_request_status=None,
+        worktree_cleanup_status='pending',
         completed_at=None,
     )
     emit_log(f'[dag] starting task {task_id}', log_queue)
@@ -790,6 +1255,21 @@ def run_task(task_id: str, log_queue: QueueLike | None = None) -> None:
         finalize(context, connection, log_queue)
         update_run(connection, task_id, status='complete', completed_at=utc_now(), last_error=None)
         emit_log(f'[dag] task complete: {task_id}', log_queue)
+    except ControlRequestedError as error:
+        update_run(
+            connection,
+            task_id,
+            status='interrupted',
+            current_phase='cancelled',
+            last_error=str(error),
+            completed_at=utc_now(),
+            active_model='idle',
+            control_state='cancelled',
+            control_completed_at=utc_now(),
+            finalize_summary='Run interrupted by dashboard control action before finalization completed.',
+        )
+        record_event(connection, task_id, 'control', str(error))
+        raise
     except Exception as error:
         update_run(
             connection,
@@ -803,6 +1283,8 @@ def run_task(task_id: str, log_queue: QueueLike | None = None) -> None:
         record_event(connection, task_id, 'error', str(error))
         raise
     finally:
+        if context is not None:
+            auto_cleanup_finished_worktree(context, connection, log_queue)
         connection.close()
 
 
@@ -918,11 +1400,13 @@ def mark_stale_runs_interrupted() -> int:
             SET status = 'interrupted',
                 current_phase = 'offline',
                 last_error = COALESCE(last_error, 'Dashboard restarted before active task state could be reconciled.'),
+                control_state = CASE WHEN control_state = 'cancel-requested' THEN 'cancelled' ELSE control_state END,
+                control_completed_at = CASE WHEN control_state = 'cancel-requested' THEN COALESCE(control_completed_at, ?) ELSE control_completed_at END,
                 completed_at = COALESCE(completed_at, ?),
                 updated_at = ?
             WHERE status IN ('queued', 'running')
             ''',
-            (now, now),
+            (now, now, now),
         )
         connection.commit()
         return int(cursor.rowcount)

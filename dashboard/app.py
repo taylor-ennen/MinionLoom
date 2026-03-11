@@ -16,10 +16,13 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from orchestrator.dag import (
     MinionExecutionError,
+    cleanup_task_worktree,
     get_run_detail,
+    get_next_retry_identifier,
     get_system_snapshot,
     list_runs,
     mark_stale_runs_interrupted,
+    request_task_cancel,
     run_task,
 )
 
@@ -76,12 +79,17 @@ def ensure_dashboard_ready() -> None:
         APP_STATE_INITIALIZED = True
 
 
-def run_task_in_background(task_id: str) -> None:
+def run_task_in_background(task_id: str, retry_of_task_id: str | None = None, retry_sequence: int = 0) -> None:
     ensure_dashboard_ready()
     prefixed_queue = PrefixedQueue(LOG_QUEUE, task_id)
     try:
         enqueue_log(f'[dashboard] starting task {task_id}')
-        run_task(task_id=task_id, log_queue=prefixed_queue)
+        run_task(
+            task_id=task_id,
+            log_queue=prefixed_queue,
+            retry_of_task_id=retry_of_task_id,
+            retry_sequence=retry_sequence,
+        )
         enqueue_log(f'[dashboard] task {task_id} completed successfully')
     except MinionExecutionError as error:
         enqueue_log(f'[dashboard] task {task_id} failed: {error}')
@@ -89,6 +97,18 @@ def run_task_in_background(task_id: str) -> None:
         enqueue_log(f'[dashboard] unexpected failure for {task_id}: {error}')
     finally:
         ACTIVE_TASKS.pop(task_id, None)
+
+
+def start_background_task(task_id: str, retry_of_task_id: str | None = None, retry_sequence: int = 0) -> threading.Thread:
+    worker = threading.Thread(
+        target=run_task_in_background,
+        args=(task_id, retry_of_task_id, retry_sequence),
+        name=f'minion-{task_id}',
+        daemon=True,
+    )
+    ACTIVE_TASKS[task_id] = worker
+    worker.start()
+    return worker
 
 
 @app.get('/')
@@ -132,14 +152,65 @@ def start_task(task_id: str) -> Response:
     if not TASK_ID_PATTERN.fullmatch(task_id):
         return jsonify({'error': 'Task identifiers may only contain letters, numbers, underscores, and hyphens.'}), 400
 
+    existing_payload = get_run_detail(task_id)
+    if existing_payload is not None:
+        return jsonify({'error': 'Task identifier already exists. Use retry for an existing run.'}), 409
+
     existing = ACTIVE_TASKS.get(task_id)
     if existing and existing.is_alive():
         return jsonify({'status': 'already-running', 'task_id': task_id}), 202
 
-    worker = threading.Thread(target=run_task_in_background, args=(task_id,), name=f'minion-{task_id}', daemon=True)
-    ACTIVE_TASKS[task_id] = worker
-    worker.start()
+    start_background_task(task_id)
     return jsonify({'status': 'started', 'task_id': task_id}), 202
+
+
+@app.post('/api/task/<task_id>/cancel')
+def cancel_task(task_id: str) -> Response:
+    ensure_dashboard_ready()
+    try:
+        payload = request_task_cancel(task_id)
+    except MinionExecutionError as error:
+        return jsonify({'error': str(error)}), 400
+    if payload.get('status') in {'complete', 'failed', 'interrupted'}:
+        message = f'Task {task_id} is already terminal; no cancellation was needed.'
+        status = 'already-terminal'
+    else:
+        message = f'Cancel requested for {task_id}.'
+        status = 'cancel-requested'
+    enqueue_log(f'[dashboard] {message}')
+    return jsonify({'status': status, 'task_id': task_id, 'run': payload, 'message': message})
+
+
+@app.post('/api/task/<task_id>/retry')
+def retry_task(task_id: str) -> Response:
+    ensure_dashboard_ready()
+    try:
+        retry_task_id, retry_sequence = get_next_retry_identifier(task_id)
+    except MinionExecutionError as error:
+        return jsonify({'error': str(error)}), 400
+
+    start_background_task(retry_task_id, retry_of_task_id=task_id, retry_sequence=retry_sequence)
+    enqueue_log(f'[dashboard] retry requested for {task_id} as {retry_task_id}')
+    return jsonify(
+        {
+            'status': 'started',
+            'task_id': retry_task_id,
+            'source_task_id': task_id,
+            'retry_sequence': retry_sequence,
+            'message': f'Retry {retry_sequence} for {task_id} started as {retry_task_id}.',
+        }
+    ), 202
+
+
+@app.post('/api/task/<task_id>/cleanup')
+def cleanup_task(task_id: str) -> Response:
+    ensure_dashboard_ready()
+    try:
+        payload = cleanup_task_worktree(task_id)
+    except MinionExecutionError as error:
+        return jsonify({'error': str(error)}), 400
+    enqueue_log(f'[dashboard] cleanup completed for {task_id}')
+    return jsonify({'status': 'cleanup-complete', 'task_id': task_id, 'run': payload, 'message': f'Cleanup completed for {task_id}.'})
 
 
 @app.get('/health')

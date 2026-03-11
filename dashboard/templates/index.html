@@ -6,10 +6,9 @@
   <title>Local Minion Command Console</title>
   <style>
     :root {
-      --bg: #07111d;
-      --bg-accent: #0f1d2e;
-      --panel: rgba(9, 18, 32, 0.9);
-      --panel-2: rgba(13, 24, 42, 0.94);
+      --panel: rgba(9, 18, 32, 0.92);
+      --panel-2: rgba(13, 24, 42, 0.96);
+      --panel-3: rgba(16, 30, 49, 0.98);
       --border: rgba(148, 163, 184, 0.2);
       --text: #e6eef8;
       --muted: #8fa2b8;
@@ -23,6 +22,7 @@
 
     * {
       box-sizing: border-box;
+      min-width: 0;
     }
 
     body {
@@ -34,18 +34,20 @@
         radial-gradient(circle at top left, rgba(56, 189, 248, 0.16), transparent 28%),
         radial-gradient(circle at top right, rgba(52, 211, 153, 0.14), transparent 24%),
         linear-gradient(180deg, #08111d, #09131f 45%, #050b13);
-      padding: 24px;
+      padding: 18px;
     }
 
     .shell {
-      max-width: 1500px;
+      max-width: 1480px;
       margin: 0 auto;
       display: grid;
-      gap: 18px;
+      gap: 16px;
     }
 
+    .panel,
     .hero,
-    .panel {
+    .command-bar,
+    .main-grid {
       background: var(--panel);
       border: 1px solid var(--border);
       border-radius: var(--radius);
@@ -54,40 +56,73 @@
     }
 
     .hero {
-      padding: 28px;
+      padding: 22px 24px;
       display: grid;
-      grid-template-columns: 2fr 1fr;
-      gap: 20px;
+      grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr);
+      gap: 18px;
+      align-items: start;
     }
 
     .hero h1 {
       margin: 0;
-      font-size: clamp(1.8rem, 3vw, 2.8rem);
-      letter-spacing: 0.04em;
+      font-size: clamp(1.55rem, 2vw, 2.2rem);
+      letter-spacing: 0.05em;
     }
 
     .hero p {
-      margin: 10px 0 0;
+      margin: 8px 0 0;
       color: var(--muted);
-      line-height: 1.6;
-      max-width: 70ch;
+      font-size: 0.92rem;
+      line-height: 1.55;
+      max-width: 78ch;
+    }
+
+    .hero-side {
+      display: grid;
+      gap: 12px;
+      justify-items: end;
+      align-content: start;
+    }
+
+    .layout-switch {
+      display: inline-flex;
+      gap: 6px;
+      padding: 6px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(6, 12, 22, 0.68);
+    }
+
+    .layout-toggle {
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid transparent;
+      font-size: 0.78rem;
+      font-weight: 700;
+    }
+
+    .layout-toggle.active {
+      background: linear-gradient(135deg, #34d399, #38bdf8);
+      color: #02101b;
     }
 
     .pill-row {
       display: flex;
       flex-wrap: wrap;
-      gap: 10px;
-      align-content: flex-start;
+      gap: 8px;
       justify-content: flex-end;
+      align-content: flex-start;
     }
 
     .pill {
-      padding: 10px 14px;
+      padding: 8px 12px;
       border-radius: 999px;
       border: 1px solid var(--border);
       background: rgba(15, 23, 42, 0.82);
       color: var(--muted);
-      font-size: 0.9rem;
+      font-size: 0.82rem;
     }
 
     .pill.good {
@@ -100,63 +135,39 @@
       background: rgba(120, 82, 9, 0.3);
     }
 
-    .grid {
+    .command-bar {
+      padding: 18px 20px;
       display: grid;
-      grid-template-columns: repeat(12, 1fr);
+      grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.2fr);
       gap: 18px;
+      align-items: start;
     }
 
-    .span-12 { grid-column: span 12; }
-    .span-8 { grid-column: span 8; }
-    .span-7 { grid-column: span 7; }
-    .span-5 { grid-column: span 5; }
-    .span-4 { grid-column: span 4; }
-
-    .panel {
-      padding: 20px;
-      overflow: hidden;
-    }
-
-    .panel h2,
-    .panel h3 {
-      margin: 0 0 12px;
-      font-size: 1rem;
-      letter-spacing: 0.06em;
-      text-transform: uppercase;
-      color: var(--muted);
-    }
-
-    .metric-grid {
+    .command-stack,
+    .overview-stack,
+    .inspector-stack,
+    .detail-stack {
       display: grid;
-      grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 14px;
+      gap: 12px;
+      min-height: 0;
     }
 
-    .metric {
+    .section-label,
+    .panel h2 {
+      margin: 0;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 0.78rem;
+    }
+
+    .dispatch-card {
+      display: grid;
+      gap: 12px;
+      padding: 14px;
       background: var(--panel-2);
       border: 1px solid var(--border);
       border-radius: 18px;
-      padding: 16px;
-    }
-
-    .metric .label {
-      color: var(--muted);
-      font-size: 0.84rem;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-    }
-
-    .metric .value {
-      margin-top: 10px;
-      font-size: clamp(1.3rem, 2vw, 2rem);
-      font-weight: 700;
-    }
-
-    .metric .subtext {
-      margin-top: 6px;
-      color: var(--muted);
-      font-size: 0.9rem;
-      line-height: 1.45;
     }
 
     .control-grid {
@@ -184,7 +195,7 @@
     button {
       border: none;
       border-radius: 14px;
-      padding: 14px 18px;
+      padding: 13px 18px;
       background: linear-gradient(135deg, #34d399, #38bdf8);
       color: #02101b;
       font-weight: 700;
@@ -196,26 +207,198 @@
       cursor: wait;
     }
 
-    .caption {
-      margin-top: 10px;
+    .caption,
+    .panel-note,
+    .muted {
       color: var(--muted);
-      line-height: 1.5;
-      font-size: 0.92rem;
+      font-size: 0.84rem;
+      line-height: 1.45;
+    }
+
+    .overview-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .metric-card,
+    .guardrail-card,
+    .summary-card,
+    .kv-card,
+    .timeline-item,
+    .event-item,
+    .log-line {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px;
+    }
+
+    .metric-card .label,
+    .guardrail-card .key,
+    .summary-card .key,
+    .kv-card .key {
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 0.7rem;
+    }
+
+    .metric-card .value {
+      margin-top: 8px;
+      font-size: 1.55rem;
+      font-weight: 700;
+    }
+
+    .metric-card .subtext,
+    .guardrail-card .value,
+    .summary-card .value,
+    .kv-card .value {
+      margin-top: 6px;
+      line-height: 1.45;
+      font-size: 0.86rem;
+      word-break: break-word;
+    }
+
+    .guardrail-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .main-grid {
+      padding: 14px;
+      display: grid;
+      grid-template-columns: minmax(420px, 0.95fr) minmax(0, 1.35fr);
+      gap: 14px;
+      min-height: 700px;
+    }
+
+    .panel {
+      padding: 16px;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .fleet-shell,
+    .detail-shell {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      min-height: 0;
+    }
+
+    .panel-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .fleet-controls {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .fleet-controls input {
+      padding: 10px 12px;
+      border-radius: 12px;
+    }
+
+    .fleet-summary {
+      font-size: 0.78rem;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .table-wrap {
+      min-height: 0;
+      height: 100%;
+      overflow: auto;
+      border-radius: 16px;
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      background: rgba(7, 15, 27, 0.55);
+    }
+
+    .fleet-list {
+      min-height: 0;
+      height: 100%;
+      overflow: auto;
+      display: grid;
+      gap: 8px;
+      align-content: start;
+      padding-right: 2px;
+    }
+
+    .fleet-item {
+      display: grid;
+      gap: 8px;
+      padding: 12px 14px;
+      border-radius: 16px;
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      background: rgba(12, 20, 34, 0.88);
+      cursor: pointer;
+      transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
+    }
+
+    .fleet-item:hover,
+    .fleet-item.selected {
+      background: rgba(18, 31, 49, 0.96);
+      border-color: rgba(56, 189, 248, 0.32);
+      transform: translateY(-1px);
+    }
+
+    .fleet-header,
+    .fleet-meta,
+    .fleet-submeta {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .fleet-title {
+      font-weight: 700;
+      font-size: 0.86rem;
+      line-height: 1.35;
+      word-break: break-word;
+    }
+
+    .fleet-meta,
+    .fleet-submeta,
+    .fleet-note {
+      color: var(--muted);
+      font-size: 0.76rem;
+      line-height: 1.4;
+    }
+
+    .fleet-note {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }
 
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 0.92rem;
+      font-size: 0.84rem;
     }
 
     thead {
-      background: rgba(15, 23, 42, 0.72);
+      background: rgba(15, 23, 42, 0.78);
+    }
+
+    .table-wrap thead th {
+      position: sticky;
+      top: 0;
+      z-index: 1;
     }
 
     th,
     td {
-      padding: 12px 10px;
+      padding: 11px 10px;
       border-bottom: 1px solid rgba(148, 163, 184, 0.12);
       text-align: left;
       vertical-align: top;
@@ -238,8 +421,9 @@
       border-radius: 999px;
       padding: 6px 10px;
       border: 1px solid var(--border);
-      font-size: 0.82rem;
+      font-size: 0.72rem;
       text-transform: uppercase;
+      white-space: nowrap;
     }
 
     .status.running,
@@ -262,30 +446,81 @@
       background: rgba(127, 29, 29, 0.28);
     }
 
-    .kv {
+    .detail-layout {
+      display: grid;
+      grid-template-rows: auto auto auto 1fr;
+      gap: 12px;
+      min-height: 0;
+    }
+
+    .highlights-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .summary-card {
+      padding: 12px 14px;
+    }
+
+    .action-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .action-button.secondary {
+      background: rgba(56, 189, 248, 0.18);
+      color: var(--text);
+      border: 1px solid rgba(56, 189, 248, 0.28);
+    }
+
+    .action-button.danger {
+      background: rgba(127, 29, 29, 0.42);
+      color: #fee2e2;
+      border: 1px solid rgba(248, 113, 113, 0.32);
+    }
+
+    .detail-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .detail-tab {
+      background: rgba(56, 189, 248, 0.12);
+      color: var(--text);
+      border: 1px solid rgba(56, 189, 248, 0.22);
+      padding: 9px 13px;
+      font-size: 0.8rem;
+    }
+
+    .detail-tab.active {
+      background: linear-gradient(135deg, #34d399, #38bdf8);
+      color: #02101b;
+    }
+
+    .detail-panels {
+      min-height: 0;
+      display: grid;
+    }
+
+    .detail-panel {
+      min-height: 0;
+      display: none;
+    }
+
+    .detail-panel.active {
+      display: grid;
+    }
+
+    .info-grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
-    }
-
-    .kv-card {
-      background: var(--panel-2);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 14px;
-    }
-
-    .kv-card .key {
-      color: var(--muted);
-      font-size: 0.8rem;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-    }
-
-    .kv-card .value {
-      margin-top: 8px;
-      word-break: break-word;
-      line-height: 1.55;
+      gap: 10px;
+      align-content: start;
+      overflow: auto;
+      padding-right: 4px;
     }
 
     .timeline,
@@ -293,18 +528,10 @@
     .terminal {
       display: grid;
       gap: 10px;
-      max-height: 520px;
+      height: 100%;
       overflow: auto;
       padding-right: 6px;
-    }
-
-    .timeline-item,
-    .event-item,
-    .log-line {
-      background: var(--panel-2);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 14px;
+      align-content: start;
     }
 
     .timeline-head,
@@ -315,15 +542,11 @@
       gap: 12px;
     }
 
-    .muted {
-      color: var(--muted);
-    }
-
     .terminal {
       background: linear-gradient(180deg, rgba(12, 19, 31, 0.9), rgba(2, 6, 23, 0.98));
       border-radius: 18px;
       border: 1px solid rgba(52, 211, 153, 0.18);
-      padding: 16px;
+      padding: 14px;
     }
 
     .log-line {
@@ -348,28 +571,477 @@
       text-align: center;
     }
 
-    @media (max-width: 1200px) {
-      .hero,
-      .metric-grid,
-      .kv {
+    details {
+      background: rgba(7, 15, 27, 0.45);
+      border: 1px solid rgba(148, 163, 184, 0.12);
+      border-radius: 14px;
+      padding: 12px 14px;
+    }
+
+    details summary {
+      cursor: pointer;
+      list-style: none;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 0.76rem;
+    }
+
+    details summary::-webkit-details-marker {
+      display: none;
+    }
+
+    details[open] summary {
+      margin-bottom: 12px;
+    }
+
+    body[data-layout="ide"] {
+      min-height: 100vh;
+      height: 100vh;
+      font-family: 'Segoe UI', 'Inter', system-ui, sans-serif;
+      background: #0f111a;
+      padding: 0;
+      overflow: hidden;
+    }
+
+    body[data-layout="ide"] .shell {
+      max-width: none;
+      height: 100vh;
+      margin: 0;
+      padding: 16px;
+      display: grid;
+      grid-template-columns: 400px minmax(0, 1fr);
+      grid-template-rows: auto auto minmax(0, 1fr);
+      grid-template-areas:
+        "hero overview"
+        "dispatch detail"
+        "fleet detail";
+      gap: 16px;
+      background: #0f111a;
+    }
+
+    body[data-layout="ide"] .hero,
+    body[data-layout="ide"] .command-stack,
+    body[data-layout="ide"] .overview-stack,
+    body[data-layout="ide"] .fleet-shell,
+    body[data-layout="ide"] .detail-shell {
+      background: #1a1d27;
+      border: 1px solid #2e3240;
+      border-radius: 8px;
+      box-shadow: none;
+      backdrop-filter: none;
+    }
+
+    body[data-layout="ide"] .hero {
+      grid-area: hero;
+      display: block;
+      padding: 16px;
+    }
+
+    body[data-layout="ide"] .hero h1 {
+      font-size: 1.2rem;
+      font-weight: 600;
+      letter-spacing: 0;
+    }
+
+    body[data-layout="ide"] .hero p {
+      font-size: 0.85rem;
+      line-height: 1.4;
+      max-width: none;
+    }
+
+    body[data-layout="ide"] .hero-side {
+      justify-items: start;
+      margin-top: 12px;
+    }
+
+    body[data-layout="ide"] .layout-switch {
+      background: #0f111a;
+      border-color: #2e3240;
+    }
+
+    body[data-layout="ide"] .layout-toggle {
+      color: #94a3b8;
+      font-size: 0.75rem;
+      padding: 6px 10px;
+    }
+
+    body[data-layout="ide"] .layout-toggle.active {
+      background: #3b82f6;
+      color: #ffffff;
+    }
+
+    body[data-layout="ide"] .pill-row {
+      justify-content: flex-start;
+      gap: 6px;
+      margin-top: 0;
+    }
+
+    body[data-layout="ide"] .pill {
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      background: #0f111a;
+      border-color: #2e3240;
+    }
+
+    body[data-layout="ide"] .pill.good {
+      color: #10b981;
+      border-color: rgba(16, 185, 129, 0.3);
+      background: #0f111a;
+    }
+
+    body[data-layout="ide"] .pill.warn {
+      color: #f59e0b;
+      border-color: rgba(245, 158, 11, 0.3);
+      background: #0f111a;
+    }
+
+    body[data-layout="ide"] .command-bar,
+    body[data-layout="ide"] .main-grid {
+      display: contents;
+      background: transparent;
+      border: none;
+      box-shadow: none;
+      backdrop-filter: none;
+      padding: 0;
+    }
+
+    body[data-layout="ide"] .command-stack {
+      grid-area: dispatch;
+      padding: 16px;
+      align-content: start;
+    }
+
+    body[data-layout="ide"] .overview-stack {
+      grid-area: overview;
+      padding: 0;
+      background: transparent;
+      border: none;
+    }
+
+    body[data-layout="ide"] .overview-stack .section-label {
+      display: none;
+    }
+
+    body[data-layout="ide"] .overview-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    body[data-layout="ide"] .metric-card {
+      background: #1a1d27;
+      border: 1px solid #2e3240;
+      border-radius: 6px;
+      padding: 16px;
+    }
+
+    body[data-layout="ide"] .metric-card .label,
+    body[data-layout="ide"] .guardrail-card .key,
+    body[data-layout="ide"] .summary-card .key,
+    body[data-layout="ide"] .kv-card .key,
+    body[data-layout="ide"] .panel h2,
+    body[data-layout="ide"] .section-label,
+    body[data-layout="ide"] details summary {
+      font-size: 0.75rem;
+      letter-spacing: 0.05em;
+      color: #94a3b8;
+    }
+
+    body[data-layout="ide"] .metric-card .subtext,
+    body[data-layout="ide"] .caption,
+    body[data-layout="ide"] .panel-note,
+    body[data-layout="ide"] .muted {
+      color: #94a3b8;
+    }
+
+    body[data-layout="ide"] .metric-card .value {
+      font-size: 1.5rem;
+    }
+
+    body[data-layout="ide"] .dispatch-card,
+    body[data-layout="ide"] details,
+    body[data-layout="ide"] .kv-card,
+    body[data-layout="ide"] .summary-card,
+    body[data-layout="ide"] .timeline-item,
+    body[data-layout="ide"] .event-item {
+      background: #0f111a;
+      border: 1px solid #2e3240;
+      border-radius: 6px;
+      padding: 12px;
+    }
+
+    body[data-layout="ide"] input {
+      border-radius: 6px;
+      border-color: #2e3240;
+      background: #0f111a;
+      color: #e2e8f0;
+      padding: 8px 12px;
+    }
+
+    body[data-layout="ide"] button {
+      border-radius: 6px;
+      background: #3b82f6;
+      color: #ffffff;
+      padding: 8px 12px;
+    }
+
+    body[data-layout="ide"] button:hover {
+      background: #2563eb;
+    }
+
+    body[data-layout="ide"] .fleet-shell {
+      grid-area: fleet;
+      padding: 0;
+      overflow: hidden;
+      grid-template-rows: auto auto minmax(0, 1fr);
+    }
+
+    body[data-layout="ide"] .panel-header {
+      margin: 0;
+      padding: 16px 16px 12px;
+      border-bottom: 1px solid #2e3240;
+    }
+
+    body[data-layout="ide"] .fleet-shell .panel-header {
+      display: none;
+    }
+
+    body[data-layout="ide"] .fleet-controls {
+      margin: 0;
+      padding: 12px 16px;
+      border-bottom: 1px solid #2e3240;
+      display: flex;
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+    }
+
+    body[data-layout="ide"] .fleet-summary {
+      font-size: 0.75rem;
+      white-space: normal;
+    }
+
+    body[data-layout="ide"] .fleet-list {
+      gap: 0;
+      padding: 0;
+    }
+
+    body[data-layout="ide"] .fleet-item {
+      border: none;
+      border-bottom: 1px solid #2e3240;
+      border-radius: 0;
+      background: transparent;
+      padding: 12px 16px;
+      transition: background 120ms ease;
+    }
+
+    body[data-layout="ide"] .fleet-item:hover {
+      background: #262a38;
+      transform: none;
+    }
+
+    body[data-layout="ide"] .fleet-item.selected {
+      background: rgba(59, 130, 246, 0.1);
+      border-left: 3px solid #3b82f6;
+      padding-left: 13px;
+    }
+
+    body[data-layout="ide"] .fleet-header {
+      margin-bottom: 4px;
+    }
+
+    body[data-layout="ide"] .fleet-title {
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+
+    body[data-layout="ide"] .fleet-meta,
+    body[data-layout="ide"] .fleet-submeta,
+    body[data-layout="ide"] .fleet-note {
+      font-size: 0.75rem;
+      color: #94a3b8;
+    }
+
+    body[data-layout="ide"] .status {
+      font-size: 0.7rem;
+      padding: 2px 6px;
+      border-radius: 4px;
+      border: none;
+      font-weight: 600;
+    }
+
+    body[data-layout="ide"] .detail-shell {
+      grid-area: detail;
+      padding: 0;
+      display: grid;
+      grid-template-rows: auto auto minmax(0, 1fr);
+      overflow: hidden;
+    }
+
+    body[data-layout="ide"] #selected-task-label {
+      font-size: 1.2rem;
+      font-weight: 600;
+      color: #e2e8f0;
+    }
+
+    body[data-layout="ide"] .detail-layout {
+      grid-template-rows: auto auto 1fr;
+      gap: 0;
+    }
+
+    body[data-layout="ide"] .highlights-grid {
+      padding: 16px;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+      border-bottom: 1px solid #2e3240;
+    }
+
+    body[data-layout="ide"] .action-row {
+      padding: 0 16px 16px;
+    }
+
+    body[data-layout="ide"] .action-button.secondary {
+      background: transparent;
+      border: 1px solid #2e3240;
+      color: #e2e8f0;
+    }
+
+    body[data-layout="ide"] .action-button.danger {
+      background: rgba(239, 68, 68, 0.1);
+      color: #ef4444;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    body[data-layout="ide"] .detail-tabs {
+      gap: 0;
+      padding: 0 16px;
+      border-top: 1px solid #2e3240;
+      border-bottom: 1px solid #2e3240;
+      background: #0f111a;
+    }
+
+    body[data-layout="ide"] .detail-tab {
+      background: none;
+      border: none;
+      border-radius: 0;
+      padding: 12px 24px;
+      color: #94a3b8;
+      border-bottom: 2px solid transparent;
+      margin-bottom: -1px;
+    }
+
+    body[data-layout="ide"] .detail-tab.active {
+      background: none;
+      color: #3b82f6;
+      border-bottom-color: #3b82f6;
+    }
+
+    body[data-layout="ide"] .detail-panels {
+      display: flex;
+      overflow: hidden;
+    }
+
+    body[data-layout="ide"] .detail-panel {
+      flex: 1;
+      overflow: auto;
+      padding: 16px;
+    }
+
+    body[data-layout="ide"] .detail-panel.active {
+      display: block;
+    }
+
+    body[data-layout="ide"] .info-grid {
+      grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 16px;
+      overflow: visible;
+      padding-right: 0;
+    }
+
+    body[data-layout="ide"] .timeline,
+    body[data-layout="ide"] .event-feed {
+      display: grid;
+      gap: 12px;
+      height: auto;
+      overflow: visible;
+      padding-right: 0;
+    }
+
+    body[data-layout="ide"] .terminal {
+      height: 100%;
+      padding: 16px;
+      border-radius: 6px;
+      border: 1px solid #1f222b;
+      background: #000000;
+      font-family: 'Cascadia Code', 'JetBrains Mono', Consolas, monospace;
+    }
+
+    body[data-layout="ide"] .log-line {
+      padding: 4px 0;
+      border: none;
+      border-bottom: 1px solid #1f222b;
+      border-radius: 0;
+      background: transparent;
+      color: #a1a1aa;
+    }
+
+    body[data-layout="ide"] .log-line.meta {
+      color: #0ea5e9;
+    }
+
+    body[data-layout="ide"] .log-line.error {
+      color: #ef4444;
+      border-color: #1f222b;
+    }
+
+    body[data-layout="ide"] .empty {
+      border-radius: 6px;
+      border-color: #2e3240;
+      padding: 32px;
+    }
+
+    @media (max-width: 1280px) {
+      .command-bar,
+      .main-grid,
+      .hero {
         grid-template-columns: 1fr;
       }
 
-      .span-8,
-      .span-7,
-      .span-5,
-      .span-4 {
-        grid-column: span 12;
+      .highlights-grid,
+      .guardrail-grid,
+      .overview-grid,
+      .info-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      body[data-layout="ide"] .shell {
+        grid-template-columns: 340px minmax(0, 1fr);
+      }
+
+      body[data-layout="ide"] .overview-grid,
+      body[data-layout="ide"] .highlights-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
       }
     }
 
-    @media (max-width: 760px) {
+    @media (max-width: 900px) {
       body {
         padding: 14px;
       }
 
-      .control-grid {
+      .control-grid,
+      .highlights-grid,
+      .guardrail-grid,
+      .overview-grid,
+      .info-grid {
         grid-template-columns: 1fr;
+      }
+
+      .pill-row,
+      .detail-tabs,
+      .action-row {
+        justify-content: flex-start;
       }
 
       table,
@@ -396,6 +1068,42 @@
         border-bottom: none;
         padding: 8px 4px;
       }
+
+      body[data-layout="ide"] {
+        height: auto;
+        overflow: auto;
+      }
+
+      body[data-layout="ide"] .shell {
+        height: auto;
+        min-height: 100vh;
+        padding: 12px;
+        grid-template-columns: 1fr;
+        grid-template-rows: auto;
+        grid-template-areas:
+          "hero"
+          "dispatch"
+          "overview"
+          "fleet"
+          "detail";
+      }
+
+      body[data-layout="ide"] .overview-grid,
+      body[data-layout="ide"] .highlights-grid,
+      body[data-layout="ide"] .info-grid {
+        grid-template-columns: 1fr;
+      }
+
+      body[data-layout="ide"] .detail-shell,
+      body[data-layout="ide"] .fleet-shell {
+        min-height: 0;
+      }
+
+      body[data-layout="ide"] .detail-panels,
+      body[data-layout="ide"] .detail-panel,
+      body[data-layout="ide"] .fleet-list {
+        overflow: visible;
+      }
     }
   </style>
 </head>
@@ -404,54 +1112,81 @@
     <section class="hero">
       <div>
         <h1>Local Minion Command Console</h1>
-        <p>Persistent operational telemetry for autonomous minions. The dashboard renders directly from SQLite, so run history, worktree assignments, phase timing, model usage, reflections, and task outcomes remain visible after dashboard restarts.</p>
+        <p>Rich operational detail, reduced navigation friction. The fleet stays visible, the selected task stays anchored, and deep telemetry is available in tabs instead of forcing a long stacked page.</p>
       </div>
-      <div class="pill-row" id="hero-pills"></div>
+      <div class="hero-side">
+        <div class="layout-switch" aria-label="Layout mode">
+          <button type="button" class="layout-toggle" data-layout-mode="console">Console</button>
+          <button type="button" class="layout-toggle" data-layout-mode="ide">IDE</button>
+        </div>
+        <div class="pill-row" id="hero-pills"></div>
+      </div>
     </section>
 
-    <section class="panel">
-      <h2>System Overview</h2>
-      <div class="metric-grid" id="metric-grid"></div>
+    <section class="command-bar">
+      <section class="command-stack">
+        <h2 class="section-label">Dispatch</h2>
+        <div class="dispatch-card">
+          <form id="task-form" class="control-grid">
+            <input id="task-id" name="taskId" type="text" value="feature-dashboard-audit" autocomplete="off" spellcheck="false" aria-label="Task identifier">
+            <button id="launch-button" type="submit">Start Minion</button>
+          </form>
+          <div class="caption" id="dispatch-status">Dispatch a task, then work from the selected-task pane without losing the fleet view.</div>
+        </div>
+        <details>
+          <summary>Model Guardrails</summary>
+          <div class="guardrail-grid" id="guardrail-grid"></div>
+        </details>
+      </section>
+
+      <section class="overview-stack">
+        <h2 class="section-label">System Overview</h2>
+        <div class="overview-grid" id="metric-grid"></div>
+      </section>
     </section>
 
-    <section class="grid">
-      <section class="panel span-4">
-        <h2>Dispatch</h2>
-        <form id="task-form" class="control-grid">
-          <input id="task-id" name="taskId" type="text" value="feature-dashboard-audit" autocomplete="off" spellcheck="false" aria-label="Task identifier">
-          <button id="launch-button" type="submit">Start Minion</button>
-        </form>
-        <div class="caption" id="dispatch-status">Dispatch from VS Code and monitor the resulting minion assignment, worktree, phase timing, and model usage below.</div>
-      </section>
-
-      <section class="panel span-8">
-        <h2>Model Guardrails</h2>
-        <div class="kv" id="guardrail-grid"></div>
-      </section>
-
-      <section class="panel span-7">
-        <h2>Minion Fleet</h2>
+    <section class="main-grid">
+      <section class="panel fleet-shell">
+        <div class="panel-header">
+          <h2>Minion Fleet</h2>
+          <div class="panel-note">Filter and select a run without leaving this pane.</div>
+        </div>
+        <div class="fleet-controls">
+          <input id="fleet-filter" type="text" placeholder="Filter task, minion, phase, status, model" aria-label="Filter fleet rows">
+          <div class="fleet-summary" id="fleet-summary">0 runs</div>
+        </div>
         <div id="fleet-table"></div>
       </section>
 
-      <section class="panel span-5">
-        <h2>Selected Task</h2>
-        <div id="task-summary" class="kv"></div>
-      </section>
-
-      <section class="panel span-7">
-        <h2>Task Breakdown</h2>
-        <div id="timeline" class="timeline"></div>
-      </section>
-
-      <section class="panel span-5">
-        <h2>Event Feed</h2>
-        <div id="event-feed" class="event-feed"></div>
-      </section>
-
-      <section class="panel span-12">
-        <h2>Live Minion Stream</h2>
-        <div id="terminal" class="terminal"></div>
+      <section class="panel detail-shell">
+        <div class="panel-header">
+          <h2>Selected Task</h2>
+          <div class="panel-note" id="selected-task-label">No task selected</div>
+        </div>
+        <div class="detail-layout">
+          <div id="task-highlights" class="highlights-grid"></div>
+          <div id="task-actions" class="action-row"></div>
+          <div class="detail-tabs" id="detail-tabs">
+            <button type="button" class="detail-tab active" data-tab="overview">Overview</button>
+            <button type="button" class="detail-tab" data-tab="timeline">Breakdown</button>
+            <button type="button" class="detail-tab" data-tab="events">Events</button>
+            <button type="button" class="detail-tab" data-tab="stream">Live Stream</button>
+          </div>
+          <div class="detail-panels">
+            <section class="detail-panel active" data-panel="overview">
+              <div class="info-grid" id="task-summary"></div>
+            </section>
+            <section class="detail-panel" data-panel="timeline">
+              <div id="timeline" class="timeline"></div>
+            </section>
+            <section class="detail-panel" data-panel="events">
+              <div id="event-feed" class="event-feed"></div>
+            </section>
+            <section class="detail-panel" data-panel="stream">
+              <div id="terminal" class="terminal"></div>
+            </section>
+          </div>
+        </div>
       </section>
     </section>
   </main>
@@ -461,14 +1196,23 @@
       overview: null,
       selectedTaskId: null,
       taskDetail: null,
-      logs: []
+      logs: [],
+      actionBusy: false,
+      activeDetailTab: 'overview',
+      fleetFilter: '',
+      layoutMode: loadLayoutMode()
     };
 
     const heroPills = document.getElementById('hero-pills');
     const metricGrid = document.getElementById('metric-grid');
     const guardrailGrid = document.getElementById('guardrail-grid');
     const fleetTable = document.getElementById('fleet-table');
+    const fleetFilter = document.getElementById('fleet-filter');
+    const fleetSummary = document.getElementById('fleet-summary');
+    const selectedTaskLabel = document.getElementById('selected-task-label');
+    const taskHighlights = document.getElementById('task-highlights');
     const taskSummary = document.getElementById('task-summary');
+    const taskActions = document.getElementById('task-actions');
     const timeline = document.getElementById('timeline');
     const eventFeed = document.getElementById('event-feed');
     const terminal = document.getElementById('terminal');
@@ -476,6 +1220,22 @@
     const taskIdInput = document.getElementById('task-id');
     const launchButton = document.getElementById('launch-button');
     const dispatchStatus = document.getElementById('dispatch-status');
+    const detailTabs = document.getElementById('detail-tabs');
+    const layoutToggles = Array.from(document.querySelectorAll('[data-layout-mode]'));
+
+    function loadLayoutMode() {
+      const stored = window.localStorage.getItem('local-minion-dashboard-layout');
+      return stored === 'ide' ? 'ide' : 'console';
+    }
+
+    function applyLayoutMode(layoutMode) {
+      state.layoutMode = layoutMode === 'ide' ? 'ide' : 'console';
+      document.body.dataset.layout = state.layoutMode;
+      window.localStorage.setItem('local-minion-dashboard-layout', state.layoutMode);
+      layoutToggles.forEach((button) => {
+        button.classList.toggle('active', button.dataset.layoutMode === state.layoutMode);
+      });
+    }
 
     function escapeHtml(value) {
       return String(value ?? '')
@@ -525,7 +1285,7 @@
         <span class="pill ${database.status === 'connected' ? 'good' : 'warn'}">DB ${escapeHtml(database.status)}</span>
         <span class="pill ${database.sqlite_vec_loaded ? 'good' : 'warn'}">sqlite-vec ${database.sqlite_vec_loaded ? 'loaded' : 'missing'}</span>
         <span class="pill">Active minions ${escapeHtml(counts.active_runs)}</span>
-        <span class="pill">Recovered after restart ${escapeHtml(dashboard.recovered_runs)}</span>
+        <span class="pill">Recovered ${escapeHtml(dashboard.recovered_runs)}</span>
         <span class="pill">Uptime ${escapeHtml(formatDuration(dashboard.uptime_seconds))}</span>
       `;
     }
@@ -534,25 +1294,25 @@
       const counts = snapshot.counts;
       const dashboard = snapshot.dashboard;
       metricGrid.innerHTML = `
-        <article class="metric">
+        <article class="metric-card">
           <div class="label">Parallel Minions</div>
           <div class="value">${escapeHtml(counts.active_runs)}</div>
-          <div class="subtext">Concurrent minions visible from persistent run state and active dashboard threads.</div>
+          <div class="subtext">Concurrent active or queued runs currently tracked.</div>
         </article>
-        <article class="metric">
+        <article class="metric-card">
           <div class="label">Completed Runs</div>
           <div class="value">${escapeHtml(counts.completed_runs)}</div>
-          <div class="subtext">Runs that reached terminal completion and persisted their timing and worktree metadata.</div>
+          <div class="subtext">Runs that reached terminal completion and persisted final telemetry.</div>
         </article>
-        <article class="metric">
+        <article class="metric-card">
           <div class="label">Failed Or Interrupted</div>
           <div class="value">${escapeHtml(counts.failed_runs + counts.interrupted_runs)}</div>
-          <div class="subtext">Persistent error visibility even after dashboard restarts.</div>
+          <div class="subtext">Runs that need operator review or a retry decision.</div>
         </article>
-        <article class="metric">
+        <article class="metric-card">
           <div class="label">Dashboard Threads</div>
           <div class="value">${escapeHtml(dashboard.active_threads.length)}</div>
-          <div class="subtext">Live worker threads currently attached to this dashboard process.</div>
+          <div class="subtext">Worker threads currently attached to this dashboard process.</div>
         </article>
       `;
     }
@@ -561,21 +1321,21 @@
       const policy = snapshot.model_policy;
       const database = snapshot.database;
       guardrailGrid.innerHTML = `
-        <article class="kv-card">
+        <article class="guardrail-card">
           <div class="key">Allowed Models</div>
           <div class="value">${escapeHtml(policy.allowed_models.join(', '))}</div>
         </article>
-        <article class="kv-card">
+        <article class="guardrail-card">
           <div class="key">Strict Enforcement</div>
-          <div class="value">${policy.strict_enforced ? 'Runtime-enforced in the DAG command builder' : 'disabled'}</div>
+          <div class="value">${policy.strict_enforced ? 'Runtime-enforced inside the DAG command builder' : 'disabled'}</div>
         </article>
-        <article class="kv-card">
+        <article class="guardrail-card">
           <div class="key">Disallowed Model Usage</div>
           <div class="value">${escapeHtml(policy.disallowed_model_usages)}</div>
         </article>
-        <article class="kv-card">
+        <article class="guardrail-card">
           <div class="key">Database Path</div>
-          <div class="value">${escapeHtml(database.path)}</div>
+          <div class="value">${escapeHtml(database.path.replace(/^.*MinionLoom\\/, 'MinionLoom\\'))}</div>
         </article>
       `;
     }
@@ -588,18 +1348,74 @@
       return (active || runs[0]).task_id;
     }
 
+    function filterRuns(runs) {
+      if (!state.fleetFilter) {
+        return runs;
+      }
+
+      const needle = state.fleetFilter.toLowerCase();
+      return runs.filter((run) => {
+        const haystack = [
+          run.minion_designation,
+          run.task_id,
+          run.status,
+          run.current_phase,
+          run.active_model,
+          run.worktree_name,
+          run.branch_name
+        ].join(' ').toLowerCase();
+        return haystack.includes(needle);
+      });
+    }
+
     function renderFleet(snapshot) {
       const runs = snapshot.runs || [];
+      const visibleRuns = filterRuns(runs);
       if (!state.selectedTaskId) {
         state.selectedTaskId = pickDefaultTask(runs);
       }
 
-      if (!runs.length) {
-        fleetTable.innerHTML = '<div class="empty">No minion runs have been recorded yet.</div>';
+      fleetSummary.textContent = `${visibleRuns.length} of ${runs.length} runs`;
+
+      if (!visibleRuns.length) {
+        fleetTable.innerHTML = '<div class="empty">No runs match the current fleet filter.</div>';
         return;
       }
 
-      const rows = runs.map((run) => `
+      if (state.layoutMode === 'ide') {
+        fleetTable.innerHTML = `
+          <div class="fleet-list">
+            ${visibleRuns.map((run) => `
+              <article class="fleet-item ${run.task_id === state.selectedTaskId ? 'selected' : ''}" data-task-id="${escapeHtml(run.task_id)}">
+                <div class="fleet-header">
+                  <span class="fleet-title">${escapeHtml(run.task_id)}</span>
+                  <span class="status ${statusClass(run.status)}">${escapeHtml(run.status)}</span>
+                </div>
+                <div class="fleet-meta">
+                  <span>${escapeHtml(run.current_phase || 'n/a')}</span>
+                  <span>${escapeHtml(formatDuration(run.elapsed_seconds))}</span>
+                </div>
+                <div class="fleet-submeta">
+                  <span>${escapeHtml(run.minion_designation || 'n/a')}</span>
+                  <span>${escapeHtml(run.active_model || 'n/a')}</span>
+                </div>
+                <div class="fleet-note">${escapeHtml(run.worktree_name || 'no worktree assigned')}</div>
+              </article>
+            `).join('')}
+          </div>
+        `;
+
+        fleetTable.querySelectorAll('[data-task-id]').forEach((row) => {
+          row.addEventListener('click', async () => {
+            state.selectedTaskId = row.dataset.taskId;
+            renderFleet(state.overview);
+            await refreshTaskDetail();
+          });
+        });
+        return;
+      }
+
+      const rows = visibleRuns.map((run) => `
         <tr data-task-id="${escapeHtml(run.task_id)}" class="${run.task_id === state.selectedTaskId ? 'selected' : ''}">
           <td>${escapeHtml(run.minion_designation || 'n/a')}</td>
           <td>${escapeHtml(run.task_id)}</td>
@@ -613,60 +1429,141 @@
       `).join('');
 
       fleetTable.innerHTML = `
-        <table>
-          <thead>
-            <tr>
-              <th>Minion</th>
-              <th>Task</th>
-              <th>Status</th>
-              <th>Phase</th>
-              <th>Model</th>
-              <th>Worktree</th>
-              <th>Elapsed</th>
-              <th>Updated</th>
-            </tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Minion</th>
+                <th>Task</th>
+                <th>Status</th>
+                <th>Phase</th>
+                <th>Model</th>
+                <th>Worktree</th>
+                <th>Elapsed</th>
+                <th>Updated</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
       `;
 
       fleetTable.querySelectorAll('tbody tr').forEach((row) => {
-        row.addEventListener('click', () => {
+        row.addEventListener('click', async () => {
           state.selectedTaskId = row.dataset.taskId;
-          refreshTaskDetail();
           renderFleet(state.overview);
+          await refreshTaskDetail();
         });
       });
     }
 
     function renderTaskSummary(detail) {
       if (!detail || !detail.run) {
-        taskSummary.innerHTML = '<div class="empty">Select a task to inspect its persistent run state.</div>';
+        selectedTaskLabel.textContent = 'No task selected';
+        taskHighlights.innerHTML = '<div class="empty">Select a run from the fleet to inspect all of its persisted detail here.</div>';
+        taskSummary.innerHTML = '<div class="empty">Overview data will appear here once a task is selected.</div>';
+        taskActions.innerHTML = '';
         return;
       }
 
       const run = detail.run;
-      const items = [
-        ['Minion Designation', run.minion_designation || 'n/a'],
-        ['Task Type', run.task_type || 'n/a'],
+      selectedTaskLabel.textContent = run.task_id;
+
+      const highlightItems = [
         ['Status', run.status || 'n/a'],
         ['Current Phase', run.current_phase || 'n/a'],
-        ['Active Model', run.active_model || 'n/a'],
-        ['Worktree', run.worktree_path || 'n/a'],
+        ['Worktree', run.worktree_name || 'n/a'],
+        ['Model', run.active_model || 'n/a']
+      ];
+      taskHighlights.innerHTML = highlightItems.map(([key, value]) => `
+        <article class="summary-card">
+          <div class="key">${escapeHtml(key)}</div>
+          <div class="value">${escapeHtml(value)}</div>
+        </article>
+      `).join('');
+
+      const overviewItems = [
+        ['Minion Designation', run.minion_designation || 'n/a'],
+        ['Task Type', run.task_type || 'n/a'],
         ['Branch', run.branch_name || 'n/a'],
+        ['Worktree Path', run.worktree_path || 'n/a'],
+        ['Retry Source', run.retry_of_task_id || 'none'],
+        ['Retry Sequence', run.retry_sequence ?? 0],
         ['Reflections', run.reflection_attempts ?? 0],
+        ['Control State', run.control_state || 'idle'],
+        ['Cleanup State', run.worktree_cleanup_status || 'pending'],
         ['Started', formatDateTime(run.started_at)],
         ['Updated', formatDateTime(run.updated_at)],
         ['Completed', formatDateTime(run.completed_at)],
-        ['Last Error', run.last_error || 'none']
+        ['Last Error', run.last_error || 'none'],
+        ['Finalize Summary', run.finalize_summary || 'No finalization summary recorded yet.'],
+        ['Commit SHA', run.commit_sha || 'n/a'],
+        ['Remote', run.remote_url || run.remote_name || 'n/a'],
+        ['Push Status', run.push_status || 'n/a'],
+        ['Pull Request Status', run.pull_request_status || 'n/a']
       ];
 
-      taskSummary.innerHTML = items.map(([key, value]) => `
+      taskSummary.innerHTML = overviewItems.map(([key, value]) => `
         <article class="kv-card">
           <div class="key">${escapeHtml(key)}</div>
           <div class="value">${escapeHtml(value)}</div>
         </article>
       `).join('');
+
+      renderTaskActions(run);
+    }
+
+    function renderTaskActions(run) {
+      if (!run) {
+        taskActions.innerHTML = '';
+        return;
+      }
+
+      const controls = [
+        {
+          action: 'cancel',
+          label: run.control_state === 'cancel-requested' ? 'Cancel Requested' : 'Cancel Run',
+          enabled: Boolean(run.can_cancel) && !state.actionBusy,
+          className: 'danger'
+        },
+        {
+          action: 'retry',
+          label: 'Retry Task',
+          enabled: Boolean(run.can_retry) && !state.actionBusy,
+          className: 'secondary'
+        },
+        {
+          action: 'cleanup',
+          label: 'Cleanup Worktree',
+          enabled: Boolean(run.can_cleanup) && !state.actionBusy,
+          className: 'secondary'
+        }
+      ];
+
+      taskActions.innerHTML = controls.map((control) => `
+        <button
+          type="button"
+          class="action-button ${escapeHtml(control.className)}"
+          data-action="${escapeHtml(control.action)}"
+          ${control.enabled ? '' : 'disabled'}
+        >${escapeHtml(control.label)}</button>
+      `).join('');
+
+      taskActions.querySelectorAll('button[data-action]').forEach((button) => {
+        button.addEventListener('click', async () => {
+          await performTaskAction(button.dataset.action);
+        });
+      });
+    }
+
+    function setActiveDetailTab(tabName) {
+      state.activeDetailTab = tabName;
+      detailTabs.querySelectorAll('[data-tab]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.tab === tabName);
+      });
+      document.querySelectorAll('.detail-panel').forEach((panel) => {
+        panel.classList.toggle('active', panel.dataset.panel === tabName);
+      });
     }
 
     function renderTimeline(detail) {
@@ -754,10 +1651,43 @@
         renderEvents(null);
         return;
       }
+
       state.taskDetail = await response.json();
       renderTaskSummary(state.taskDetail);
       renderTimeline(state.taskDetail);
       renderEvents(state.taskDetail);
+    }
+
+    async function performTaskAction(action) {
+      if (!state.selectedTaskId || state.actionBusy) {
+        return;
+      }
+
+      state.actionBusy = true;
+      renderTaskActions(state.taskDetail?.run || null);
+      dispatchStatus.textContent = `${action} requested for ${state.selectedTaskId}...`;
+
+      try {
+        const response = await fetch(`/api/task/${encodeURIComponent(state.selectedTaskId)}/${encodeURIComponent(action)}`, { method: 'POST' });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error || `Unable to ${action} task.`);
+        }
+
+        if (action === 'retry' && payload.task_id) {
+          state.selectedTaskId = payload.task_id;
+        }
+
+        dispatchStatus.textContent = payload.message || `${action} completed.`;
+        appendLogLine(`[dashboard] ${payload.message || `${action} completed for ${state.selectedTaskId}`}`);
+        await refreshAll();
+      } catch (error) {
+        dispatchStatus.textContent = error.message;
+        appendLogLine(`[dashboard] ${error.message}`);
+      } finally {
+        state.actionBusy = false;
+        renderTaskActions(state.taskDetail?.run || null);
+      }
     }
 
     async function refreshAll() {
@@ -774,6 +1704,28 @@
     source.onerror = () => {
       appendLogLine('[dashboard] telemetry stream temporarily unavailable; reconnecting automatically');
     };
+
+    detailTabs.querySelectorAll('[data-tab]').forEach((button) => {
+      button.addEventListener('click', () => {
+        setActiveDetailTab(button.dataset.tab);
+      });
+    });
+
+    layoutToggles.forEach((button) => {
+      button.addEventListener('click', () => {
+        applyLayoutMode(button.dataset.layoutMode);
+        if (state.overview) {
+          renderFleet(state.overview);
+        }
+      });
+    });
+
+    fleetFilter.addEventListener('input', () => {
+      state.fleetFilter = fleetFilter.value.trim();
+      if (state.overview) {
+        renderFleet(state.overview);
+      }
+    });
 
     taskForm.addEventListener('submit', async (event) => {
       event.preventDefault();
@@ -803,6 +1755,8 @@
       }
     });
 
+    applyLayoutMode(state.layoutMode);
+    setActiveDetailTab(state.activeDetailTab);
     refreshAll();
     window.setInterval(refreshAll, 2000);
   </script>

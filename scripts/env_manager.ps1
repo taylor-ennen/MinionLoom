@@ -57,6 +57,8 @@ function Get-UniqueBranchName {
 
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $minionRoot = Split-Path -Parent $scriptRoot
+$workspaceRoot = Split-Path -Parent (Split-Path -Parent $minionRoot)
+$workspaceName = Split-Path -Leaf $workspaceRoot
 $taskSlug = ($TaskID -replace '[^A-Za-z0-9_-]', '-').Trim('-')
 if ([string]::IsNullOrWhiteSpace($taskSlug)) {
     $taskSlug = 'task'
@@ -79,7 +81,9 @@ try {
         & git config core.symlinks true | Out-Null
 
         $branchName = Get-UniqueBranchName -BaseName $branchBase
-        $worktreePath = Join-Path (Split-Path -Parent $minionRoot) "minion-workspace-$taskSlug"
+        $runtimeRoot = Join-Path (Join-Path $env:LOCALAPPDATA 'LocalMinion\worktrees') $workspaceName
+        New-Item -ItemType Directory -Force -Path $runtimeRoot | Out-Null
+        $worktreePath = Join-Path $runtimeRoot "minion-workspace-$taskSlug"
 
         if (Test-Path -LiteralPath $worktreePath) {
             $suffix = Get-Date -Format 'yyyyMMddHHmmss'
