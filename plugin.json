@@ -1,0 +1,7 @@
+{
+  "name": "local-minion",
+  "version": "1.0.0",
+  "agents": "agents/",
+  "skills": "skills/",
+  "hooks": "hooks.json"
+}

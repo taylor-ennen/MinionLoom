@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Local Minion Dashboard</title>
+  <style>
+    :root {
+      --bg-top: #0b1220;
+      --bg-bottom: #111827;
+      --panel: rgba(10, 16, 28, 0.88);
+      --panel-border: rgba(148, 163, 184, 0.22);
+      --text-main: #e5eef8;
+      --text-soft: #94a3b8;
+      --accent: #22c55e;
+      --accent-2: #38bdf8;
+      --terminal-bg: #020617;
+      --terminal-glow: rgba(34, 197, 94, 0.12);
+      --badge-idle: rgba(148, 163, 184, 0.18);
+      --badge-active: rgba(56, 189, 248, 0.18);
+      --badge-success: rgba(34, 197, 94, 0.18);
+      --danger: #f87171;
+      --shadow: 0 24px 60px rgba(2, 6, 23, 0.45);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Consolas, 'SFMono-Regular', Menlo, Monaco, monospace;
+      color: var(--text-main);
+      background:
+        radial-gradient(circle at top left, rgba(56, 189, 248, 0.18), transparent 28%),
+        radial-gradient(circle at top right, rgba(34, 197, 94, 0.16), transparent 30%),
+        linear-gradient(160deg, var(--bg-top), var(--bg-bottom));
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+
+    .shell {
+      width: min(1100px, 100%);
+      background: var(--panel);
+      border: 1px solid var(--panel-border);
+      border-radius: 22px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      backdrop-filter: blur(18px);
+    }
+
+    .header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 24px 28px;
+      border-bottom: 1px solid var(--panel-border);
+    }
+
+    .title h1 {
+      margin: 0;
+      font-size: clamp(1.5rem, 3vw, 2.2rem);
+      letter-spacing: 0.04em;
+    }
+
+    .title p {
+      margin: 8px 0 0;
+      color: var(--text-soft);
+      max-width: 64ch;
+      line-height: 1.5;
+    }
+
+    .badges {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .badge {
+      border-radius: 999px;
+      padding: 10px 14px;
+      border: 1px solid var(--panel-border);
+      background: var(--badge-idle);
+      font-size: 0.9rem;
+      color: var(--text-soft);
+      transition: transform 140ms ease, background 140ms ease, color 140ms ease;
+    }
+
+    .badge.active {
+      background: var(--badge-active);
+      color: var(--text-main);
+      transform: translateY(-1px);
+    }
+
+    .badge.success {
+      background: var(--badge-success);
+      color: #bbf7d0;
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) auto;
+      gap: 14px;
+      padding: 20px 28px;
+      border-bottom: 1px solid var(--panel-border);
+    }
+
+    .controls input {
+      width: 100%;
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      border-radius: 14px;
+      background: rgba(15, 23, 42, 0.74);
+      color: var(--text-main);
+      padding: 14px 16px;
+      outline: none;
+      font: inherit;
+    }
+
+    .controls button {
+      border: none;
+      border-radius: 14px;
+      padding: 14px 18px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      color: #04111f;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    .controls button:disabled {
+      cursor: wait;
+      opacity: 0.7;
+    }
+
+    .status {
+      padding: 0 28px 18px;
+      color: var(--text-soft);
+      min-height: 1.4em;
+    }
+
+    .terminal {
+      margin: 0 28px 28px;
+      min-height: 420px;
+      max-height: 60vh;
+      overflow: auto;
+      border-radius: 18px;
+      padding: 20px;
+      background:
+        linear-gradient(180deg, rgba(15, 23, 42, 0.9), rgba(2, 6, 23, 0.98)),
+        var(--terminal-bg);
+      border: 1px solid rgba(34, 197, 94, 0.16);
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03), inset 0 0 36px var(--terminal-glow);
+      white-space: pre-wrap;
+      line-height: 1.55;
+      color: #d1fae5;
+    }
+
+    .line {
+      margin: 0;
+    }
+
+    .line.error {
+      color: #fecaca;
+    }
+
+    .line.meta {
+      color: #93c5fd;
+    }
+
+    @media (max-width: 720px) {
+      .controls {
+        grid-template-columns: 1fr;
+      }
+
+      .terminal {
+        margin: 0 18px 18px;
+      }
+
+      .header,
+      .controls,
+      .status {
+        padding-left: 18px;
+        padding-right: 18px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <section class="header">
+      <div class="title">
+        <h1>Local Minion Telemetry</h1>
+        <p>Observe autonomous implementation, validation, and bounded reflection in real time without leaving Visual Studio Code.</p>
+      </div>
+      <div class="badges">
+        <span class="badge" id="badge-gpt-4-1">GPT-4.1 idle</span>
+        <span class="badge" id="badge-gpt-5-mini">GPT-5 mini idle</span>
+        <span class="badge" id="badge-run-state">Awaiting task</span>
+      </div>
+    </section>
+
+    <form class="controls" id="task-form">
+      <input id="task-id" name="taskId" type="text" value="demo-task" autocomplete="off" spellcheck="false" aria-label="Task identifier">
+      <button id="launch-button" type="submit">Start Task</button>
+    </form>
+
+    <div class="status" id="status-text">Connects to /stream automatically and appends logs as they arrive.</div>
+    <section class="terminal" id="terminal" aria-live="polite"></section>
+  </main>
+
+  <script>
+    const terminal = document.getElementById('terminal');
+    const statusText = document.getElementById('status-text');
+    const form = document.getElementById('task-form');
+    const taskIdInput = document.getElementById('task-id');
+    const launchButton = document.getElementById('launch-button');
+    const badgeGpt41 = document.getElementById('badge-gpt-4-1');
+    const badgeGpt5Mini = document.getElementById('badge-gpt-5-mini');
+    const badgeRunState = document.getElementById('badge-run-state');
+
+    function setBadgeState(activeModel) {
+      badgeGpt41.classList.remove('active', 'success');
+      badgeGpt5Mini.classList.remove('active', 'success');
+
+      if (activeModel === 'gpt-4.1') {
+        badgeGpt41.classList.add('active');
+        badgeGpt41.textContent = 'GPT-4.1 active';
+        badgeGpt5Mini.textContent = 'GPT-5 mini idle';
+      } else if (activeModel === 'gpt-5-mini') {
+        badgeGpt5Mini.classList.add('active');
+        badgeGpt5Mini.textContent = 'GPT-5 mini active';
+        badgeGpt41.textContent = 'GPT-4.1 idle';
+      }
+    }
+
+    function markSuccessfulCompletion() {
+      badgeGpt41.classList.add('success');
+      badgeGpt5Mini.classList.add('success');
+      badgeRunState.classList.add('success');
+      badgeRunState.textContent = 'Task complete';
+      launchButton.disabled = false;
+    }
+
+    function appendLine(text) {
+      if (!text) {
+        return;
+      }
+
+      const line = document.createElement('p');
+      line.className = 'line';
+      line.textContent = text;
+
+      if (/error|failed|exception/i.test(text)) {
+        line.classList.add('error');
+      } else if (/^\[(dashboard|setup|validation|finalize|reflect|implement)\]/i.test(text)) {
+        line.classList.add('meta');
+      }
+
+      if (text.includes('gpt-4.1')) {
+        setBadgeState('gpt-4.1');
+      }
+
+      if (text.includes('gpt-5-mini') || text.includes('GPT-5 mini')) {
+        setBadgeState('gpt-5-mini');
+      }
+
+      if (/completed successfully|task complete/i.test(text)) {
+        markSuccessfulCompletion();
+      }
+
+      if (/starting task/i.test(text)) {
+        badgeRunState.classList.remove('success');
+        badgeRunState.textContent = 'Task running';
+      }
+
+      terminal.appendChild(line);
+      terminal.scrollTop = terminal.scrollHeight;
+    }
+
+    const source = new EventSource('/stream');
+    source.onopen = () => {
+      statusText.textContent = 'Telemetry stream connected.';
+    };
+
+    source.onerror = () => {
+      statusText.textContent = 'Telemetry stream disconnected. The page will retry automatically.';
+    };
+
+    source.onmessage = (event) => {
+      appendLine(event.data);
+    };
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const taskId = taskIdInput.value.trim();
+      if (!taskId) {
+        statusText.textContent = 'Enter a task identifier before starting a run.';
+        return;
+      }
+
+      launchButton.disabled = true;
+      badgeRunState.classList.remove('success');
+      badgeRunState.textContent = 'Dispatching task';
+      statusText.textContent = `Starting task ${taskId}...`;
+      appendLine(`[dashboard] POST /start_task/${taskId}`);
+
+      try {
+        const response = await fetch(`/start_task/${encodeURIComponent(taskId)}`, { method: 'POST' });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error || 'Unable to start task.');
+        }
+
+        statusText.textContent = `Task ${payload.task_id} ${payload.status}.`;
+        if (payload.status === 'already-running') {
+          launchButton.disabled = false;
+          badgeRunState.textContent = 'Task already running';
+        }
+      } catch (error) {
+        launchButton.disabled = false;
+        badgeRunState.textContent = 'Dispatch failed';
+        appendLine(`[dashboard] ${error.message}`);
+        statusText.textContent = error.message;
+      }
+    });
+  </script>
+</body>
+</html>
