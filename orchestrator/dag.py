@@ -21,6 +21,7 @@ MINION_ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = MINION_ROOT / 'minion_state.db'
 ENV_MANAGER_PATH = MINION_ROOT / 'scripts' / 'env_manager.ps1'
 MAX_REFLECTIONS = 2
+IMPLEMENTER_AGENT = 'local-minion/implementer'
 
 
 class QueueLike(Protocol):
@@ -37,6 +38,11 @@ class TaskContext:
     task_id: str
     worktree_path: Path
     branch_name: str
+
+
+def should_skip_implementation(task_id: str) -> bool:
+    normalized_task_id = task_id.lower()
+    return normalized_task_id.startswith('selftest') or normalized_task_id.startswith('diagnostic')
 
 
 def utc_now() -> str:
@@ -141,7 +147,15 @@ def update_run(
 
 def run_checked(command: list[str], cwd: Path, phase: str, log_queue: QueueLike | None) -> subprocess.CompletedProcess[str]:
     emit_log(f'[{phase}] running: {subprocess.list2cmdline(command)}', log_queue)
-    result = subprocess.run(command, cwd=str(cwd), capture_output=True, text=True, check=False)
+    result = subprocess.run(
+        command,
+        cwd=str(cwd),
+        capture_output=True,
+        text=True,
+        encoding='utf-8',
+        errors='replace',
+        check=False,
+    )
     if result.stdout.strip():
         for line in result.stdout.splitlines():
             emit_log(f'[{phase}] {line}', log_queue)
@@ -156,7 +170,15 @@ def run_checked(command: list[str], cwd: Path, phase: str, log_queue: QueueLike 
 def setup_environment(task_id: str, connection: sqlite3.Connection, log_queue: QueueLike | None) -> TaskContext:
     command = ['pwsh', '-NoProfile', '-File', str(ENV_MANAGER_PATH), '-TaskID', task_id]
     emit_log('[setup] invoking env_manager.ps1', log_queue)
-    result = subprocess.run(command, cwd=str(MINION_ROOT), capture_output=True, text=True, check=False)
+    result = subprocess.run(
+        command,
+        cwd=str(MINION_ROOT),
+        capture_output=True,
+        text=True,
+        encoding='utf-8',
+        errors='replace',
+        check=False,
+    )
 
     if result.stderr.strip():
         for line in result.stderr.splitlines():
@@ -180,6 +202,8 @@ def setup_environment(task_id: str, connection: sqlite3.Connection, log_queue: Q
         cwd=str(worktree_path),
         capture_output=True,
         text=True,
+        encoding='utf-8',
+        errors='replace',
         check=False,
     ).stdout.strip()
     context = TaskContext(task_id=task_id, worktree_path=worktree_path, branch_name=branch_name)
@@ -225,11 +249,16 @@ def stream_process_output(
 
 
 def run_implementation(context: TaskContext, hydrated_context: str, connection: sqlite3.Connection, log_queue: QueueLike | None) -> None:
+    if should_skip_implementation(context.task_id):
+        emit_log('[implement] self-test mode active; skipping Copilot implementation phase', log_queue)
+        update_run(connection, context.task_id, 'implementation-skipped')
+        return
+
     base_prompt = f'Implement the requirements described in task {context.task_id}. Ensure all tests pass.'
     args = [
         'copilot',
         '--agent',
-        'implementer',
+        IMPLEMENTER_AGENT,
         '-p',
         base_prompt,
         '--autopilot',
@@ -249,6 +278,8 @@ def run_implementation(context: TaskContext, hydrated_context: str, connection: 
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        encoding='utf-8',
+        errors='replace',
         bufsize=1,
     )
     return_code = stream_process_output(process, 'implement', context.task_id, connection, log_queue)
@@ -258,11 +289,26 @@ def run_implementation(context: TaskContext, hydrated_context: str, connection: 
 
 
 def build_test_command(worktree_path: Path) -> list[str]:
+    escaped_worktree_path = str(worktree_path).replace("'", "''")
     script = r"""
-param([string]$WorktreePath)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-Set-Location $WorktreePath
+Set-Location 'WORKTREE_PATH_PLACEHOLDER'
+
+if (
+    (Test-Path '.\plugin.json') -and
+    (Test-Path '.\orchestrator\dag.py') -and
+    (Test-Path '.\dashboard\app.py')
+) {
+    $venvPython = Join-Path $PWD '.venv\Scripts\python.exe'
+    if (-not (Test-Path $venvPython)) {
+        Write-Error 'Expected local Minion virtual environment was not found for self-test mode.'
+        exit 1
+    }
+
+    & $venvPython -c "import sys; from pathlib import Path; root = Path.cwd(); sys.path.insert(0, str(root)); import orchestrator.dag; import dashboard.app; conn = orchestrator.dag.initialize_database(); conn.close(); print('local-minion self-test ok')"
+    exit $LASTEXITCODE
+}
 
 if (Test-Path '.\scripts\test.ps1') {
     & pwsh -NoProfile -File '.\scripts\test.ps1'
@@ -292,14 +338,22 @@ if (Test-Path '.\package.json' -and (Get-Command npm -ErrorAction SilentlyContin
 
 Write-Error 'No supported test suite was detected for this worktree.'
 exit 1
-""".strip()
-    return ['pwsh', '-NoProfile', '-Command', script, str(worktree_path)]
+""".strip().replace('WORKTREE_PATH_PLACEHOLDER', escaped_worktree_path)
+    return ['pwsh', '-NoProfile', '-Command', script]
 
 
 def run_validation(context: TaskContext, connection: sqlite3.Connection, log_queue: QueueLike | None) -> subprocess.CompletedProcess[str]:
     command = build_test_command(context.worktree_path)
     emit_log('[validation] running PowerShell validation pipeline', log_queue)
-    result = subprocess.run(command, cwd=str(context.worktree_path), capture_output=True, text=True, check=False)
+    result = subprocess.run(
+        command,
+        cwd=str(context.worktree_path),
+        capture_output=True,
+        text=True,
+        encoding='utf-8',
+        errors='replace',
+        check=False,
+    )
     if result.stdout.strip():
         for line in result.stdout.splitlines():
             emit_log(f'[validation] {line}', log_queue)
@@ -328,7 +382,7 @@ def reflect_and_fix(
     args = [
         'copilot',
         '--agent',
-        'implementer',
+        IMPLEMENTER_AGENT,
         '-p',
         prompt,
         '--autopilot',
@@ -346,6 +400,8 @@ def reflect_and_fix(
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
+        encoding='utf-8',
+        errors='replace',
         bufsize=1,
     )
     return_code = stream_process_output(process, 'reflect', context.task_id, connection, log_queue)
@@ -359,6 +415,10 @@ def ensure_tests_pass(context: TaskContext, connection: sqlite3.Connection, log_
         update_run(connection, context.task_id, 'validated')
         emit_log('[validation] test suite passed on first attempt', log_queue)
         return
+
+    if should_skip_implementation(context.task_id):
+        failure_output = result.stderr.strip() or result.stdout.strip() or 'Unknown validation failure.'
+        raise MinionExecutionError(f'Self-test validation failed: {failure_output}')
 
     for attempt in range(1, MAX_REFLECTIONS + 1):
         failure_output = (result.stderr.strip() or result.stdout.strip() or 'Unknown validation failure.')
@@ -374,6 +434,11 @@ def ensure_tests_pass(context: TaskContext, connection: sqlite3.Connection, log_
 
 
 def finalize(context: TaskContext, connection: sqlite3.Connection, log_queue: QueueLike | None) -> None:
+    if should_skip_implementation(context.task_id):
+        emit_log('[finalize] self-test mode active; skipping commit, push, and pull request creation', log_queue)
+        update_run(connection, context.task_id, 'complete', worktree_path=context.worktree_path, branch_name=context.branch_name)
+        return
+
     emit_log('[finalize] preparing repository for commit and push', log_queue)
     run_checked(['git', 'add', '.'], context.worktree_path, 'finalize', log_queue)
 
@@ -382,6 +447,8 @@ def finalize(context: TaskContext, connection: sqlite3.Connection, log_queue: Qu
         cwd=str(context.worktree_path),
         capture_output=True,
         text=True,
+        encoding='utf-8',
+        errors='replace',
         check=False,
     )
     if staged_status.returncode == 0:
@@ -401,10 +468,14 @@ def finalize(context: TaskContext, connection: sqlite3.Connection, log_queue: Qu
         cwd=str(context.worktree_path),
         capture_output=True,
         text=True,
+        encoding='utf-8',
+        errors='replace',
         check=False,
     )
     if remote_check.returncode != 0:
-        raise MinionExecutionError('No origin remote is configured for the minion worktree repository.')
+        emit_log('[finalize] no origin remote is configured; skipping push and pull request creation for local run', log_queue)
+        update_run(connection, context.task_id, 'complete', worktree_path=context.worktree_path, branch_name=context.branch_name)
+        return
 
     run_checked(['git', 'push', '--set-upstream', 'origin', context.branch_name], context.worktree_path, 'finalize', log_queue)
 
@@ -416,7 +487,7 @@ def finalize(context: TaskContext, connection: sqlite3.Connection, log_queue: Qu
         [
             'copilot',
             '--agent',
-            'implementer',
+            IMPLEMENTER_AGENT,
             '-p',
             pr_prompt,
             '--autopilot',

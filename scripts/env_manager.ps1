@@ -105,9 +105,18 @@ try {
         Remove-Item -LiteralPath '.venv' -Force -Recurse
     }
 
-    $relativeVenvPath = Get-RelativePath -FromPath $worktreePath -ToPath $sharedVenvPath
-    $mklinkCommand = "cmd /c mklink /D .venv $relativeVenvPath"
-    Invoke-Expression $mklinkCommand | Out-Null
+    & cmd /d /c mklink /D .venv $sharedVenvPath | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        [Console]::Error.WriteLine('WARNING: Directory symlink creation failed. Falling back to a junction for .venv sharing.')
+        if (Test-Path -LiteralPath '.venv') {
+            Remove-Item -LiteralPath '.venv' -Force -Recurse
+        }
+
+        & cmd /d /c mklink /J .venv $sharedVenvPath | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            throw 'Failed to create either a directory symlink or junction for .venv.'
+        }
+    }
 
     if (-not (Test-Path -LiteralPath '.venv')) {
         throw 'Failed to create .venv symbolic link inside the worktree.'

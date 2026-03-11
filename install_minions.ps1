@@ -1,3 +1,7 @@
+param(
+    [switch]$IntegrateWithParent
+)
+
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
@@ -105,9 +109,6 @@ $targetInstructionsPath = Join-Path $parentGithubDir 'copilot-instructions.md'
 $venvPath = Join-Path $minionRoot '.venv'
 $pythonLauncher = Get-PythonCommand
 
-New-Item -ItemType Directory -Path $parentVscodeDir -Force | Out-Null
-New-Item -ItemType Directory -Path $parentGithubDir -Force | Out-Null
-
 if (-not (Test-Path -LiteralPath $venvPath)) {
     Invoke-CommandArray -Command $pythonLauncher -Arguments @('-m', 'venv', $venvPath)
 }
@@ -119,26 +120,31 @@ if (-not (Test-Path -LiteralPath $venvPython)) {
 
 & $venvPython -m pip install -r (Join-Path $minionRoot 'requirements.txt')
 
-$templateTasks = Read-JsonFile -Path $templateTasksPath
-if ($null -eq $templateTasks) {
-    throw "Template tasks configuration is missing or invalid at $templateTasksPath."
-}
+if ($IntegrateWithParent) {
+    New-Item -ItemType Directory -Path $parentVscodeDir -Force | Out-Null
+    New-Item -ItemType Directory -Path $parentGithubDir -Force | Out-Null
 
-$existingTasks = Read-JsonFile -Path $targetTasksPath
-$mergedTasks = Merge-TaskDefinitions -TemplateConfig $templateTasks -ExistingConfig $existingTasks
-$mergedTasks | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $targetTasksPath -Encoding UTF8
+    $templateTasks = Read-JsonFile -Path $templateTasksPath
+    if ($null -eq $templateTasks) {
+        throw "Template tasks configuration is missing or invalid at $templateTasksPath."
+    }
 
-Copy-Item -LiteralPath $templateInstructionsPath -Destination $targetInstructionsPath -Force
+    $existingTasks = Read-JsonFile -Path $targetTasksPath
+    $mergedTasks = Merge-TaskDefinitions -TemplateConfig $templateTasks -ExistingConfig $existingTasks
+    $mergedTasks | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath $targetTasksPath -Encoding UTF8
 
-$gitignoreEntries = @('*.db', '*.sqlite')
-if (-not (Test-Path -LiteralPath $parentGitignore)) {
-    New-Item -ItemType File -Path $parentGitignore -Force | Out-Null
-}
+    Copy-Item -LiteralPath $templateInstructionsPath -Destination $targetInstructionsPath -Force
 
-$gitignoreContent = Get-Content -LiteralPath $parentGitignore -ErrorAction SilentlyContinue
-foreach ($entry in $gitignoreEntries) {
-    if ($gitignoreContent -notcontains $entry) {
-        Add-Content -LiteralPath $parentGitignore -Value $entry
+    $gitignoreEntries = @('*.db', '*.sqlite')
+    if (-not (Test-Path -LiteralPath $parentGitignore)) {
+        New-Item -ItemType File -Path $parentGitignore -Force | Out-Null
+    }
+
+    $gitignoreContent = Get-Content -LiteralPath $parentGitignore -ErrorAction SilentlyContinue
+    foreach ($entry in $gitignoreEntries) {
+        if ($gitignoreContent -notcontains $entry) {
+            Add-Content -LiteralPath $parentGitignore -Value $entry
+        }
     }
 }
 
@@ -153,4 +159,8 @@ try {
     Pop-Location
 }
 
-Write-Host 'Local Minion installation completed successfully.'
+if ($IntegrateWithParent) {
+    Write-Host 'Local Minion installation completed successfully with parent integration.'
+} else {
+    Write-Host 'Local Minion installation completed successfully in local-only mode.'
+}
