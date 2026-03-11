@@ -9,7 +9,6 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from queue import Queue
 from typing import Any, Protocol
 
 try:
@@ -22,6 +21,9 @@ DB_PATH = MINION_ROOT / 'minion_state.db'
 ENV_MANAGER_PATH = MINION_ROOT / 'scripts' / 'env_manager.ps1'
 MAX_REFLECTIONS = 2
 IMPLEMENTER_AGENT = 'local-minion/implementer'
+ALLOWED_MODELS = ('gpt-4.1', 'gpt-5-mini')
+RUNNING_STATUSES = {'queued', 'running'}
+TERMINAL_STATUSES = {'complete', 'failed', 'interrupted'}
 
 
 class QueueLike(Protocol):
@@ -38,6 +40,8 @@ class TaskContext:
     task_id: str
     worktree_path: Path
     branch_name: str
+    minion_designation: str
+    task_type: str
 
 
 def should_skip_implementation(task_id: str) -> bool:
@@ -45,8 +49,36 @@ def should_skip_implementation(task_id: str) -> bool:
     return normalized_task_id.startswith('selftest') or normalized_task_id.startswith('diagnostic')
 
 
+def determine_task_type(task_id: str) -> str:
+    return 'diagnostic' if should_skip_implementation(task_id) else 'implementation'
+
+
+def build_minion_designation(task_id: str) -> str:
+    normalized = ''.join(character if character.isalnum() else '-' for character in task_id.upper()).strip('-')
+    if not normalized:
+        normalized = 'TASK'
+    return f'MINION-{normalized}'
+
+
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def parse_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def calculate_duration_seconds(started_at: str | None, completed_at: str | None) -> float | None:
+    started = parse_timestamp(started_at)
+    if started is None:
+        return None
+    ended = parse_timestamp(completed_at) or datetime.now(timezone.utc)
+    return max((ended - started).total_seconds(), 0.0)
 
 
 def emit_log(message: str, log_queue: QueueLike | None = None) -> None:
@@ -54,6 +86,21 @@ def emit_log(message: str, log_queue: QueueLike | None = None) -> None:
         log_queue.put(message)
     else:
         print(message, flush=True)
+
+
+def assert_allowed_model(model: str) -> str:
+    if model not in ALLOWED_MODELS:
+        raise MinionExecutionError(f'Model {model} is not permitted. Allowed models: {", ".join(ALLOWED_MODELS)}.')
+    return model
+
+
+def ensure_column(connection: sqlite3.Connection, table_name: str, column_name: str, column_definition: str) -> None:
+    existing_columns = {
+        row['name']
+        for row in connection.execute(f'PRAGMA table_info({table_name})').fetchall()
+    }
+    if column_name not in existing_columns:
+        connection.execute(f'ALTER TABLE {table_name} ADD COLUMN {column_name} {column_definition}')
 
 
 def initialize_database() -> sqlite3.Connection:
@@ -73,12 +120,19 @@ def initialize_database() -> sqlite3.Connection:
         '''
         CREATE TABLE IF NOT EXISTS runs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            task_id TEXT NOT NULL,
+            task_id TEXT NOT NULL UNIQUE,
+            task_type TEXT NOT NULL DEFAULT 'implementation',
+            minion_designation TEXT,
             branch_name TEXT,
             worktree_path TEXT,
             status TEXT NOT NULL,
+            current_phase TEXT,
+            active_model TEXT,
+            reflection_attempts INTEGER NOT NULL DEFAULT 0,
+            last_error TEXT,
             started_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL
+            updated_at TEXT NOT NULL,
+            completed_at TEXT
         )
         '''
     )
@@ -106,13 +160,114 @@ def initialize_database() -> sqlite3.Connection:
     )
     connection.execute(
         '''
+        CREATE TABLE IF NOT EXISTS phase_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            task_id TEXT NOT NULL,
+            phase TEXT NOT NULL,
+            status TEXT NOT NULL,
+            detail TEXT,
+            model TEXT,
+            started_at TEXT NOT NULL,
+            completed_at TEXT,
+            duration_seconds REAL
+        )
+        '''
+    )
+    connection.execute(
+        '''
         CREATE VIRTUAL TABLE IF NOT EXISTS vector_memory USING vec0(
             embedding float[1536]
         )
         '''
     )
+
+    ensure_column(connection, 'runs', 'task_type', "TEXT NOT NULL DEFAULT 'implementation'")
+    ensure_column(connection, 'runs', 'minion_designation', 'TEXT')
+    ensure_column(connection, 'runs', 'current_phase', 'TEXT')
+    ensure_column(connection, 'runs', 'active_model', 'TEXT')
+    ensure_column(connection, 'runs', 'reflection_attempts', 'INTEGER NOT NULL DEFAULT 0')
+    ensure_column(connection, 'runs', 'last_error', 'TEXT')
+    ensure_column(connection, 'runs', 'completed_at', 'TEXT')
+
+    connection.execute(
+        '''
+        UPDATE runs
+        SET status = 'complete',
+            completed_at = COALESCE(completed_at, updated_at),
+            current_phase = COALESCE(current_phase, 'finalize'),
+            active_model = COALESCE(active_model, 'idle')
+        WHERE status NOT IN ('queued', 'running', 'complete', 'failed', 'interrupted')
+        '''
+    )
+
+    rows_needing_backfill = connection.execute(
+        '''
+        SELECT task_id, task_type, minion_designation, current_phase, active_model, completed_at, updated_at, status
+        FROM runs
+        WHERE task_type IS NULL
+           OR task_type = ''
+           OR minion_designation IS NULL
+           OR minion_designation = ''
+           OR current_phase IS NULL
+           OR current_phase = ''
+           OR active_model IS NULL
+           OR active_model = ''
+           OR (completed_at IS NULL AND status IN ('complete', 'failed', 'interrupted'))
+        '''
+    ).fetchall()
+    for row in rows_needing_backfill:
+        inferred_task_type = row['task_type'] or determine_task_type(row['task_id'])
+        inferred_designation = row['minion_designation'] or build_minion_designation(row['task_id'])
+        inferred_phase = row['current_phase'] or ('finalize' if row['status'] in TERMINAL_STATUSES else 'unknown')
+        inferred_model = row['active_model'] or ('diagnostic-only' if inferred_task_type == 'diagnostic' else 'idle')
+        inferred_completed_at = row['completed_at'] or (row['updated_at'] if row['status'] in TERMINAL_STATUSES else None)
+        connection.execute(
+            '''
+            UPDATE runs
+            SET task_type = ?,
+                minion_designation = ?,
+                current_phase = ?,
+                active_model = ?,
+                completed_at = COALESCE(completed_at, ?)
+            WHERE task_id = ?
+            ''',
+            (
+                inferred_task_type,
+                inferred_designation,
+                inferred_phase,
+                inferred_model,
+                inferred_completed_at,
+                row['task_id'],
+            ),
+        )
+
     connection.commit()
     return connection
+
+
+def serialize_row(row: sqlite3.Row | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return {key: row[key] for key in row.keys()}
+
+
+def serialize_run(row: sqlite3.Row) -> dict[str, Any]:
+    payload = serialize_row(row) or {}
+    payload['task_type'] = payload.get('task_type') or determine_task_type(payload['task_id'])
+    payload['minion_designation'] = payload.get('minion_designation') or build_minion_designation(payload['task_id'])
+    payload['current_phase'] = payload.get('current_phase') or ('finalize' if payload.get('status') in TERMINAL_STATUSES else 'unknown')
+    payload['active_model'] = payload.get('active_model') or ('diagnostic-only' if payload['task_type'] == 'diagnostic' else 'idle')
+    payload['elapsed_seconds'] = calculate_duration_seconds(payload.get('started_at'), payload.get('completed_at'))
+    payload['is_active'] = payload.get('status') in RUNNING_STATUSES
+    payload['worktree_name'] = Path(payload['worktree_path']).name if payload.get('worktree_path') else None
+    return payload
+
+
+def serialize_phase(row: sqlite3.Row) -> dict[str, Any]:
+    payload = serialize_row(row) or {}
+    if payload.get('duration_seconds') is None:
+        payload['duration_seconds'] = calculate_duration_seconds(payload.get('started_at'), payload.get('completed_at'))
+    return payload
 
 
 def record_event(connection: sqlite3.Connection, task_id: str, phase: str, message: str) -> None:
@@ -123,26 +278,115 @@ def record_event(connection: sqlite3.Connection, task_id: str, phase: str, messa
     connection.commit()
 
 
-def update_run(
-    connection: sqlite3.Connection,
-    task_id: str,
-    status: str,
-    worktree_path: Path | None = None,
-    branch_name: str | None = None,
-) -> None:
-    existing = connection.execute('SELECT id FROM runs WHERE task_id = ?', (task_id,)).fetchone()
+def update_run(connection: sqlite3.Connection, task_id: str, **fields: Any) -> None:
     now = utc_now()
+    existing = connection.execute('SELECT id FROM runs WHERE task_id = ?', (task_id,)).fetchone()
+
     if existing is None:
+        payload: dict[str, Any] = {
+            'task_id': task_id,
+            'task_type': 'implementation',
+            'minion_designation': None,
+            'branch_name': None,
+            'worktree_path': None,
+            'status': 'queued',
+            'current_phase': 'queued',
+            'active_model': 'idle',
+            'reflection_attempts': 0,
+            'last_error': None,
+            'started_at': now,
+            'updated_at': now,
+            'completed_at': None,
+        }
+        payload.update(fields)
+        columns = ', '.join(payload.keys())
+        placeholders = ', '.join(['?'] * len(payload))
         connection.execute(
-            'INSERT INTO runs (task_id, branch_name, worktree_path, status, started_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-            (task_id, branch_name, str(worktree_path) if worktree_path else None, status, now, now),
+            f'INSERT INTO runs ({columns}) VALUES ({placeholders})',
+            tuple(payload.values()),
         )
     else:
+        payload = dict(fields)
+        payload['updated_at'] = now
+        assignments = ', '.join(f'{key} = ?' for key in payload)
         connection.execute(
-            'UPDATE runs SET branch_name = COALESCE(?, branch_name), worktree_path = COALESCE(?, worktree_path), status = ?, updated_at = ? WHERE task_id = ?',
-            (branch_name, str(worktree_path) if worktree_path else None, status, now, task_id),
+            f'UPDATE runs SET {assignments} WHERE task_id = ?',
+            tuple(payload.values()) + (task_id,),
         )
+
     connection.commit()
+
+
+def start_phase(
+    connection: sqlite3.Connection,
+    task_id: str,
+    phase: str,
+    *,
+    detail: str | None = None,
+    model: str | None = None,
+) -> int:
+    started_at = utc_now()
+    connection.execute(
+        'INSERT INTO phase_runs (task_id, phase, status, detail, model, started_at) VALUES (?, ?, ?, ?, ?, ?)',
+        (task_id, phase, 'running', detail, model, started_at),
+    )
+    phase_id = int(connection.execute('SELECT last_insert_rowid()').fetchone()[0])
+    update_run(
+        connection,
+        task_id,
+        status='running',
+        current_phase=phase,
+        active_model=model or 'deterministic',
+    )
+    if detail:
+        record_event(connection, task_id, phase, f'started: {detail}')
+    return phase_id
+
+
+def finish_phase(
+    connection: sqlite3.Connection,
+    phase_id: int,
+    *,
+    status: str,
+    detail: str | None = None,
+) -> None:
+    row = connection.execute(
+        'SELECT task_id, phase, detail, started_at FROM phase_runs WHERE id = ?',
+        (phase_id,),
+    ).fetchone()
+    if row is None:
+        return
+
+    completed_at = utc_now()
+    duration_seconds = calculate_duration_seconds(row['started_at'], completed_at)
+    final_detail = detail if detail is not None else row['detail']
+    connection.execute(
+        'UPDATE phase_runs SET status = ?, detail = ?, completed_at = ?, duration_seconds = ? WHERE id = ?',
+        (status, final_detail, completed_at, duration_seconds, phase_id),
+    )
+    connection.commit()
+
+    if final_detail:
+        record_event(connection, row['task_id'], row['phase'], f'{status}: {final_detail}')
+    else:
+        record_event(connection, row['task_id'], row['phase'], f'{status}: {row["phase"]}')
+
+
+def build_copilot_command(prompt: str, model: str) -> list[str]:
+    selected_model = assert_allowed_model(model)
+    return [
+        'copilot',
+        '--agent',
+        IMPLEMENTER_AGENT,
+        '-p',
+        prompt,
+        '--autopilot',
+        '--yolo',
+        '--max-autopilot-continues',
+        '10',
+        '--model',
+        selected_model,
+    ]
 
 
 def run_checked(command: list[str], cwd: Path, phase: str, log_queue: QueueLike | None) -> subprocess.CompletedProcess[str]:
@@ -168,6 +412,12 @@ def run_checked(command: list[str], cwd: Path, phase: str, log_queue: QueueLike 
 
 
 def setup_environment(task_id: str, connection: sqlite3.Connection, log_queue: QueueLike | None) -> TaskContext:
+    phase_id = start_phase(
+        connection,
+        task_id,
+        'setup',
+        detail='Provision worktree and attach shared virtual environment',
+    )
     command = ['pwsh', '-NoProfile', '-File', str(ENV_MANAGER_PATH), '-TaskID', task_id]
     emit_log('[setup] invoking env_manager.ps1', log_queue)
     result = subprocess.run(
@@ -186,14 +436,17 @@ def setup_environment(task_id: str, connection: sqlite3.Connection, log_queue: Q
 
     raw_stdout = result.stdout.strip()
     if not raw_stdout:
+        finish_phase(connection, phase_id, status='failed', detail='env_manager.ps1 did not emit JSON to stdout')
         raise MinionExecutionError('env_manager.ps1 did not emit JSON to stdout.')
 
     try:
         payload = json.loads(raw_stdout)
     except json.JSONDecodeError as error:
+        finish_phase(connection, phase_id, status='failed', detail=f'Unparseable setup output: {raw_stdout}')
         raise MinionExecutionError(f'Unable to parse env_manager.ps1 output: {raw_stdout}') from error
 
     if result.returncode != 0 or payload.get('status') != 'success':
+        finish_phase(connection, phase_id, status='failed', detail=f'Setup failure payload: {payload}')
         raise MinionExecutionError(f'env_manager.ps1 reported failure: {payload}')
 
     worktree_path = Path(str(payload['worktree_path']))
@@ -206,17 +459,30 @@ def setup_environment(task_id: str, connection: sqlite3.Connection, log_queue: Q
         errors='replace',
         check=False,
     ).stdout.strip()
-    context = TaskContext(task_id=task_id, worktree_path=worktree_path, branch_name=branch_name)
-    update_run(connection, task_id, 'environment-ready', worktree_path=worktree_path, branch_name=branch_name)
-    record_event(connection, task_id, 'setup', f'Created worktree at {worktree_path}')
+    context = TaskContext(
+        task_id=task_id,
+        worktree_path=worktree_path,
+        branch_name=branch_name,
+        minion_designation=build_minion_designation(task_id),
+        task_type=determine_task_type(task_id),
+    )
+    update_run(
+        connection,
+        task_id,
+        branch_name=branch_name,
+        worktree_path=str(worktree_path),
+        minion_designation=context.minion_designation,
+    )
+    finish_phase(connection, phase_id, status='completed', detail=f'Assigned worktree {worktree_path.name}')
     return context
 
 
 def hydrate_requirements(context: TaskContext, connection: sqlite3.Connection, log_queue: QueueLike | None) -> str:
+    phase_id = start_phase(connection, context.task_id, 'hydrate', detail='Load local instructions and task context')
     instructions_path = MINION_ROOT / 'templates' / 'copilot-instructions.md'
     instructions = instructions_path.read_text(encoding='utf-8').strip()
-    record_event(connection, context.task_id, 'hydrate', 'Constructed implementation prompt from template instructions.')
     emit_log(f'[hydrate] loaded repository instructions: {instructions}', log_queue)
+    finish_phase(connection, phase_id, status='completed', detail='Instruction template loaded')
     return instructions
 
 
@@ -250,24 +516,21 @@ def stream_process_output(
 
 def run_implementation(context: TaskContext, hydrated_context: str, connection: sqlite3.Connection, log_queue: QueueLike | None) -> None:
     if should_skip_implementation(context.task_id):
+        phase_id = start_phase(connection, context.task_id, 'implement', detail='Diagnostic self-test does not invoke Copilot')
         emit_log('[implement] self-test mode active; skipping Copilot implementation phase', log_queue)
-        update_run(connection, context.task_id, 'implementation-skipped')
+        finish_phase(connection, phase_id, status='skipped', detail='Self-test mode active')
+        update_run(connection, context.task_id, active_model='diagnostic-only')
         return
 
+    phase_id = start_phase(
+        connection,
+        context.task_id,
+        'implement',
+        detail='Execute implementation agent in worktree',
+        model='gpt-4.1',
+    )
     base_prompt = f'Implement the requirements described in task {context.task_id}. Ensure all tests pass.'
-    args = [
-        'copilot',
-        '--agent',
-        IMPLEMENTER_AGENT,
-        '-p',
-        base_prompt,
-        '--autopilot',
-        '--yolo',
-        '--max-autopilot-continues',
-        '10',
-        '--model',
-        'gpt-4.1',
-    ]
+    args = build_copilot_command(base_prompt, 'gpt-4.1')
     if hydrated_context:
         emit_log('[implement] hydration context loaded before implementation run', log_queue)
     emit_log('[implement] model active: gpt-4.1', log_queue)
@@ -284,8 +547,9 @@ def run_implementation(context: TaskContext, hydrated_context: str, connection: 
     )
     return_code = stream_process_output(process, 'implement', context.task_id, connection, log_queue)
     if return_code != 0:
+        finish_phase(connection, phase_id, status='failed', detail=f'Implementation agent exited with code {return_code}')
         raise MinionExecutionError(f'Implementation agent exited with code {return_code}.')
-    update_run(connection, context.task_id, 'implementation-complete')
+    finish_phase(connection, phase_id, status='completed', detail='Implementation agent completed successfully')
 
 
 def build_test_command(worktree_path: Path) -> list[str]:
@@ -342,7 +606,14 @@ exit 1
     return ['pwsh', '-NoProfile', '-Command', script]
 
 
-def run_validation(context: TaskContext, connection: sqlite3.Connection, log_queue: QueueLike | None) -> subprocess.CompletedProcess[str]:
+def run_validation_attempt(
+    context: TaskContext,
+    connection: sqlite3.Connection,
+    log_queue: QueueLike | None,
+    attempt: int,
+) -> subprocess.CompletedProcess[str]:
+    detail = f'Run validation attempt {attempt}'
+    phase_id = start_phase(connection, context.task_id, 'validation', detail=detail)
     command = build_test_command(context.worktree_path)
     emit_log('[validation] running PowerShell validation pipeline', log_queue)
     result = subprocess.run(
@@ -362,6 +633,10 @@ def run_validation(context: TaskContext, connection: sqlite3.Connection, log_que
         for line in result.stderr.splitlines():
             emit_log(f'[validation] {line}', log_queue)
             record_event(connection, context.task_id, 'validation', line)
+
+    status = 'completed' if result.returncode == 0 else 'failed'
+    summary = 'Validation succeeded' if result.returncode == 0 else (result.stderr.strip() or result.stdout.strip() or 'Validation failed')
+    finish_phase(connection, phase_id, status=status, detail=summary)
     return result
 
 
@@ -378,20 +653,16 @@ def reflect_and_fix(
     )
     connection.commit()
 
+    update_run(connection, context.task_id, reflection_attempts=attempt)
+    phase_id = start_phase(
+        connection,
+        context.task_id,
+        'reflection',
+        detail=f'Repair validation failure, attempt {attempt}',
+        model='gpt-5-mini',
+    )
     prompt = f'The test failed with the following output: {failure_output}. Fix the implementation.'
-    args = [
-        'copilot',
-        '--agent',
-        IMPLEMENTER_AGENT,
-        '-p',
-        prompt,
-        '--autopilot',
-        '--yolo',
-        '--max-autopilot-continues',
-        '10',
-        '--model',
-        'gpt-5-mini',
-    ]
+    args = build_copilot_command(prompt, 'gpt-5-mini')
     emit_log('[reflect] model active: gpt-5-mini', log_queue)
     emit_log(f'[reflect] reflection attempt {attempt}: {subprocess.list2cmdline(args)}', log_queue)
     process = subprocess.Popen(
@@ -406,13 +677,14 @@ def reflect_and_fix(
     )
     return_code = stream_process_output(process, 'reflect', context.task_id, connection, log_queue)
     if return_code != 0:
+        finish_phase(connection, phase_id, status='failed', detail=f'Reflection attempt {attempt} exited with code {return_code}')
         raise MinionExecutionError(f'Reflection attempt {attempt} exited with code {return_code}.')
+    finish_phase(connection, phase_id, status='completed', detail=f'Reflection attempt {attempt} completed')
 
 
 def ensure_tests_pass(context: TaskContext, connection: sqlite3.Connection, log_queue: QueueLike | None) -> None:
-    result = run_validation(context, connection, log_queue)
+    result = run_validation_attempt(context, connection, log_queue, attempt=1)
     if result.returncode == 0:
-        update_run(connection, context.task_id, 'validated')
         emit_log('[validation] test suite passed on first attempt', log_queue)
         return
 
@@ -421,12 +693,11 @@ def ensure_tests_pass(context: TaskContext, connection: sqlite3.Connection, log_
         raise MinionExecutionError(f'Self-test validation failed: {failure_output}')
 
     for attempt in range(1, MAX_REFLECTIONS + 1):
-        failure_output = (result.stderr.strip() or result.stdout.strip() or 'Unknown validation failure.')
+        failure_output = result.stderr.strip() or result.stdout.strip() or 'Unknown validation failure.'
         emit_log(f'[validation] attempt {attempt} failed; invoking bounded reflection', log_queue)
         reflect_and_fix(context, connection, log_queue, failure_output, attempt)
-        result = run_validation(context, connection, log_queue)
+        result = run_validation_attempt(context, connection, log_queue, attempt=attempt + 1)
         if result.returncode == 0:
-            update_run(connection, context.task_id, 'validated')
             emit_log(f'[validation] tests passed after reflection attempt {attempt}', log_queue)
             return
 
@@ -435,10 +706,13 @@ def ensure_tests_pass(context: TaskContext, connection: sqlite3.Connection, log_
 
 def finalize(context: TaskContext, connection: sqlite3.Connection, log_queue: QueueLike | None) -> None:
     if should_skip_implementation(context.task_id):
+        phase_id = start_phase(connection, context.task_id, 'finalize', detail='Diagnostic self-test skips Git finalization')
         emit_log('[finalize] self-test mode active; skipping commit, push, and pull request creation', log_queue)
-        update_run(connection, context.task_id, 'complete', worktree_path=context.worktree_path, branch_name=context.branch_name)
+        finish_phase(connection, phase_id, status='skipped', detail='Self-test mode active')
+        update_run(connection, context.task_id, status='complete', completed_at=utc_now(), active_model='diagnostic-only')
         return
 
+    phase_id = start_phase(connection, context.task_id, 'finalize', detail='Commit, push, and open pull request')
     emit_log('[finalize] preparing repository for commit and push', log_queue)
     run_checked(['git', 'add', '.'], context.worktree_path, 'finalize', log_queue)
 
@@ -453,7 +727,8 @@ def finalize(context: TaskContext, connection: sqlite3.Connection, log_queue: Qu
     )
     if staged_status.returncode == 0:
         emit_log('[finalize] no staged changes detected after validation; skipping commit, push, and PR creation', log_queue)
-        update_run(connection, context.task_id, 'complete', worktree_path=context.worktree_path, branch_name=context.branch_name)
+        finish_phase(connection, phase_id, status='skipped', detail='No staged changes detected')
+        update_run(connection, context.task_id, status='complete', completed_at=utc_now(), active_model='idle')
         return
 
     run_checked(
@@ -474,7 +749,8 @@ def finalize(context: TaskContext, connection: sqlite3.Connection, log_queue: Qu
     )
     if remote_check.returncode != 0:
         emit_log('[finalize] no origin remote is configured; skipping push and pull request creation for local run', log_queue)
-        update_run(connection, context.task_id, 'complete', worktree_path=context.worktree_path, branch_name=context.branch_name)
+        finish_phase(connection, phase_id, status='completed', detail='Committed locally; remote not configured')
+        update_run(connection, context.task_id, status='complete', completed_at=utc_now(), active_model='idle')
         return
 
     run_checked(['git', 'push', '--set-upstream', 'origin', context.branch_name], context.worktree_path, 'finalize', log_queue)
@@ -483,30 +759,27 @@ def finalize(context: TaskContext, connection: sqlite3.Connection, log_queue: Qu
         'Use the built-in MCP server to open a GitHub pull request for the current branch. '
         f'The task identifier is {context.task_id}.'
     )
-    run_checked(
-        [
-            'copilot',
-            '--agent',
-            IMPLEMENTER_AGENT,
-            '-p',
-            pr_prompt,
-            '--autopilot',
-            '--yolo',
-            '--max-autopilot-continues',
-            '10',
-            '--model',
-            'gpt-4.1',
-        ],
-        context.worktree_path,
-        'finalize',
-        log_queue,
-    )
-    update_run(connection, context.task_id, 'complete', worktree_path=context.worktree_path, branch_name=context.branch_name)
+    run_checked(build_copilot_command(pr_prompt, 'gpt-4.1'), context.worktree_path, 'finalize', log_queue)
+    finish_phase(connection, phase_id, status='completed', detail='Commit, push, and pull request flow completed')
+    update_run(connection, context.task_id, status='complete', completed_at=utc_now(), active_model='idle')
 
 
 def run_task(task_id: str, log_queue: QueueLike | None = None) -> None:
     connection = initialize_database()
-    update_run(connection, task_id, 'starting')
+    minion_designation = build_minion_designation(task_id)
+    task_type = determine_task_type(task_id)
+    update_run(
+        connection,
+        task_id,
+        task_type=task_type,
+        minion_designation=minion_designation,
+        status='running',
+        current_phase='queued',
+        active_model='idle',
+        reflection_attempts=0,
+        last_error=None,
+        completed_at=None,
+    )
     emit_log(f'[dag] starting task {task_id}', log_queue)
 
     try:
@@ -515,11 +788,144 @@ def run_task(task_id: str, log_queue: QueueLike | None = None) -> None:
         run_implementation(context, prompt, connection, log_queue)
         ensure_tests_pass(context, connection, log_queue)
         finalize(context, connection, log_queue)
+        update_run(connection, task_id, status='complete', completed_at=utc_now(), last_error=None)
         emit_log(f'[dag] task complete: {task_id}', log_queue)
     except Exception as error:
-        update_run(connection, task_id, 'failed')
+        update_run(
+            connection,
+            task_id,
+            status='failed',
+            current_phase='error',
+            last_error=str(error),
+            completed_at=utc_now(),
+            active_model='idle',
+        )
         record_event(connection, task_id, 'error', str(error))
         raise
+    finally:
+        connection.close()
+
+
+def get_system_snapshot(limit: int = 20) -> dict[str, Any]:
+    connection = initialize_database()
+    try:
+        counts = {
+            row['status']: row['count']
+            for row in connection.execute('SELECT status, COUNT(*) AS count FROM runs GROUP BY status').fetchall()
+        }
+        runs = [
+            serialize_run(row)
+            for row in connection.execute(
+                'SELECT * FROM runs ORDER BY updated_at DESC LIMIT ?',
+                (limit,),
+            ).fetchall()
+        ]
+        phase_totals = [
+            serialize_phase(row)
+            for row in connection.execute(
+                '''
+                SELECT task_id, phase, status, detail, model, started_at, completed_at, duration_seconds
+                FROM phase_runs
+                ORDER BY started_at DESC
+                LIMIT ?
+                ''',
+                (limit * 2,),
+            ).fetchall()
+        ]
+        disallowed_model_usages = connection.execute(
+            'SELECT COUNT(*) FROM phase_runs WHERE model IS NOT NULL AND model NOT IN (?, ?)',
+            ALLOWED_MODELS,
+        ).fetchone()[0]
+        return {
+            'database': {
+                'path': str(DB_PATH),
+                'status': 'connected',
+                'sqlite_vec_loaded': sqlite_vec is not None,
+            },
+            'counts': {
+                'total_runs': sum(counts.values()),
+                'active_runs': counts.get('running', 0) + counts.get('queued', 0),
+                'completed_runs': counts.get('complete', 0),
+                'failed_runs': counts.get('failed', 0),
+                'interrupted_runs': counts.get('interrupted', 0),
+            },
+            'model_policy': {
+                'allowed_models': list(ALLOWED_MODELS),
+                'strict_enforced': True,
+                'disallowed_model_usages': disallowed_model_usages,
+            },
+            'runs': runs,
+            'recent_phases': phase_totals,
+            'generated_at': utc_now(),
+        }
+    finally:
+        connection.close()
+
+
+def get_run_detail(task_id: str) -> dict[str, Any] | None:
+    connection = initialize_database()
+    try:
+        run = connection.execute('SELECT * FROM runs WHERE task_id = ?', (task_id,)).fetchone()
+        if run is None:
+            return None
+        phases = [
+            serialize_phase(row)
+            for row in connection.execute(
+                'SELECT * FROM phase_runs WHERE task_id = ? ORDER BY id ASC',
+                (task_id,),
+            ).fetchall()
+        ]
+        events = [
+            serialize_row(row)
+            for row in connection.execute(
+                'SELECT * FROM events WHERE task_id = ? ORDER BY id DESC LIMIT 80',
+                (task_id,),
+            ).fetchall()
+        ]
+        reflections = [
+            serialize_row(row)
+            for row in connection.execute(
+                'SELECT * FROM reflections WHERE task_id = ? ORDER BY attempt ASC',
+                (task_id,),
+            ).fetchall()
+        ]
+        return {
+            'run': serialize_run(run),
+            'phases': phases,
+            'events': events,
+            'reflections': reflections,
+        }
+    finally:
+        connection.close()
+
+
+def list_runs(limit: int = 100) -> list[dict[str, Any]]:
+    connection = initialize_database()
+    try:
+        rows = connection.execute('SELECT * FROM runs ORDER BY updated_at DESC LIMIT ?', (limit,)).fetchall()
+        return [serialize_run(row) for row in rows]
+    finally:
+        connection.close()
+
+
+def mark_stale_runs_interrupted() -> int:
+    connection = initialize_database()
+    try:
+        now = utc_now()
+        cursor = connection.execute(
+            '''
+            UPDATE runs
+            SET status = 'interrupted',
+                current_phase = 'offline',
+                last_error = COALESCE(last_error, 'Dashboard restarted before active task state could be reconciled.'),
+                completed_at = COALESCE(completed_at, ?),
+                updated_at = ?
+            WHERE status IN ('queued', 'running')
+            ''',
+            (now, now),
+        )
+        connection.commit()
+        return int(cursor.rowcount)
     finally:
         connection.close()
 

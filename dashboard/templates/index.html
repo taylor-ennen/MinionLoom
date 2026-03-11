@@ -3,24 +3,22 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Local Minion Dashboard</title>
+  <title>Local Minion Command Console</title>
   <style>
     :root {
-      --bg-top: #0b1220;
-      --bg-bottom: #111827;
-      --panel: rgba(10, 16, 28, 0.88);
-      --panel-border: rgba(148, 163, 184, 0.22);
-      --text-main: #e5eef8;
-      --text-soft: #94a3b8;
-      --accent: #22c55e;
-      --accent-2: #38bdf8;
-      --terminal-bg: #020617;
-      --terminal-glow: rgba(34, 197, 94, 0.12);
-      --badge-idle: rgba(148, 163, 184, 0.18);
-      --badge-active: rgba(56, 189, 248, 0.18);
-      --badge-success: rgba(34, 197, 94, 0.18);
-      --danger: #f87171;
-      --shadow: 0 24px 60px rgba(2, 6, 23, 0.45);
+      --bg: #07111d;
+      --bg-accent: #0f1d2e;
+      --panel: rgba(9, 18, 32, 0.9);
+      --panel-2: rgba(13, 24, 42, 0.94);
+      --border: rgba(148, 163, 184, 0.2);
+      --text: #e6eef8;
+      --muted: #8fa2b8;
+      --good: #34d399;
+      --warn: #f59e0b;
+      --bad: #f87171;
+      --info: #38bdf8;
+      --shadow: 0 26px 70px rgba(1, 6, 15, 0.45);
+      --radius: 22px;
     }
 
     * {
@@ -31,302 +29,782 @@
       margin: 0;
       min-height: 100vh;
       font-family: Consolas, 'SFMono-Regular', Menlo, Monaco, monospace;
-      color: var(--text-main);
+      color: var(--text);
       background:
-        radial-gradient(circle at top left, rgba(56, 189, 248, 0.18), transparent 28%),
-        radial-gradient(circle at top right, rgba(34, 197, 94, 0.16), transparent 30%),
-        linear-gradient(160deg, var(--bg-top), var(--bg-bottom));
-      display: grid;
-      place-items: center;
+        radial-gradient(circle at top left, rgba(56, 189, 248, 0.16), transparent 28%),
+        radial-gradient(circle at top right, rgba(52, 211, 153, 0.14), transparent 24%),
+        linear-gradient(180deg, #08111d, #09131f 45%, #050b13);
       padding: 24px;
     }
 
     .shell {
-      width: min(1100px, 100%);
+      max-width: 1500px;
+      margin: 0 auto;
+      display: grid;
+      gap: 18px;
+    }
+
+    .hero,
+    .panel {
       background: var(--panel);
-      border: 1px solid var(--panel-border);
-      border-radius: 22px;
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
       box-shadow: var(--shadow);
-      overflow: hidden;
       backdrop-filter: blur(18px);
     }
 
-    .header {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      justify-content: space-between;
-      gap: 18px;
-      padding: 24px 28px;
-      border-bottom: 1px solid var(--panel-border);
+    .hero {
+      padding: 28px;
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 20px;
     }
 
-    .title h1 {
+    .hero h1 {
       margin: 0;
-      font-size: clamp(1.5rem, 3vw, 2.2rem);
+      font-size: clamp(1.8rem, 3vw, 2.8rem);
       letter-spacing: 0.04em;
     }
 
-    .title p {
-      margin: 8px 0 0;
-      color: var(--text-soft);
-      max-width: 64ch;
-      line-height: 1.5;
+    .hero p {
+      margin: 10px 0 0;
+      color: var(--muted);
+      line-height: 1.6;
+      max-width: 70ch;
     }
 
-    .badges {
+    .pill-row {
       display: flex;
       flex-wrap: wrap;
       gap: 10px;
+      align-content: flex-start;
+      justify-content: flex-end;
     }
 
-    .badge {
-      border-radius: 999px;
+    .pill {
       padding: 10px 14px;
-      border: 1px solid var(--panel-border);
-      background: var(--badge-idle);
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: rgba(15, 23, 42, 0.82);
+      color: var(--muted);
       font-size: 0.9rem;
-      color: var(--text-soft);
-      transition: transform 140ms ease, background 140ms ease, color 140ms ease;
     }
 
-    .badge.active {
-      background: var(--badge-active);
-      color: var(--text-main);
-      transform: translateY(-1px);
+    .pill.good {
+      color: #d1fae5;
+      background: rgba(16, 68, 52, 0.42);
     }
 
-    .badge.success {
-      background: var(--badge-success);
-      color: #bbf7d0;
+    .pill.warn {
+      color: #fcd34d;
+      background: rgba(120, 82, 9, 0.3);
     }
 
-    .controls {
+    .grid {
       display: grid;
-      grid-template-columns: minmax(220px, 1fr) auto;
-      gap: 14px;
-      padding: 20px 28px;
-      border-bottom: 1px solid var(--panel-border);
+      grid-template-columns: repeat(12, 1fr);
+      gap: 18px;
     }
 
-    .controls input {
-      width: 100%;
-      border: 1px solid rgba(56, 189, 248, 0.25);
-      border-radius: 14px;
-      background: rgba(15, 23, 42, 0.74);
-      color: var(--text-main);
-      padding: 14px 16px;
-      outline: none;
+    .span-12 { grid-column: span 12; }
+    .span-8 { grid-column: span 8; }
+    .span-7 { grid-column: span 7; }
+    .span-5 { grid-column: span 5; }
+    .span-4 { grid-column: span 4; }
+
+    .panel {
+      padding: 20px;
+      overflow: hidden;
+    }
+
+    .panel h2,
+    .panel h3 {
+      margin: 0 0 12px;
+      font-size: 1rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .metric {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      padding: 16px;
+    }
+
+    .metric .label {
+      color: var(--muted);
+      font-size: 0.84rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .metric .value {
+      margin-top: 10px;
+      font-size: clamp(1.3rem, 2vw, 2rem);
+      font-weight: 700;
+    }
+
+    .metric .subtext {
+      margin-top: 6px;
+      color: var(--muted);
+      font-size: 0.9rem;
+      line-height: 1.45;
+    }
+
+    .control-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 12px;
+    }
+
+    input,
+    button,
+    select {
       font: inherit;
     }
 
-    .controls button {
+    input {
+      width: 100%;
+      border-radius: 14px;
+      border: 1px solid rgba(56, 189, 248, 0.24);
+      background: rgba(8, 14, 23, 0.88);
+      color: var(--text);
+      padding: 14px 16px;
+      outline: none;
+    }
+
+    button {
       border: none;
       border-radius: 14px;
       padding: 14px 18px;
-      background: linear-gradient(135deg, var(--accent), var(--accent-2));
-      color: #04111f;
-      font: inherit;
+      background: linear-gradient(135deg, #34d399, #38bdf8);
+      color: #02101b;
       font-weight: 700;
       cursor: pointer;
     }
 
-    .controls button:disabled {
-      cursor: wait;
+    button:disabled {
       opacity: 0.7;
+      cursor: wait;
+    }
+
+    .caption {
+      margin-top: 10px;
+      color: var(--muted);
+      line-height: 1.5;
+      font-size: 0.92rem;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+    }
+
+    thead {
+      background: rgba(15, 23, 42, 0.72);
+    }
+
+    th,
+    td {
+      padding: 12px 10px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    tbody tr {
+      cursor: pointer;
+      transition: background 140ms ease;
+    }
+
+    tbody tr:hover,
+    tbody tr.selected {
+      background: rgba(56, 189, 248, 0.08);
     }
 
     .status {
-      padding: 0 28px 18px;
-      color: var(--text-soft);
-      min-height: 1.4em;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border-radius: 999px;
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      font-size: 0.82rem;
+      text-transform: uppercase;
+    }
+
+    .status.running,
+    .status.queued {
+      color: #bae6fd;
+      background: rgba(14, 116, 144, 0.24);
+    }
+
+    .status.complete,
+    .status.completed,
+    .status.skipped {
+      color: #d1fae5;
+      background: rgba(16, 90, 70, 0.28);
+    }
+
+    .status.failed,
+    .status.interrupted,
+    .status.error {
+      color: #fecaca;
+      background: rgba(127, 29, 29, 0.28);
+    }
+
+    .kv {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .kv-card {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px;
+    }
+
+    .kv-card .key {
+      color: var(--muted);
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .kv-card .value {
+      margin-top: 8px;
+      word-break: break-word;
+      line-height: 1.55;
+    }
+
+    .timeline,
+    .event-feed,
+    .terminal {
+      display: grid;
+      gap: 10px;
+      max-height: 520px;
+      overflow: auto;
+      padding-right: 6px;
+    }
+
+    .timeline-item,
+    .event-item,
+    .log-line {
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 14px;
+    }
+
+    .timeline-head,
+    .event-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .muted {
+      color: var(--muted);
     }
 
     .terminal {
-      margin: 0 28px 28px;
-      min-height: 420px;
-      max-height: 60vh;
-      overflow: auto;
+      background: linear-gradient(180deg, rgba(12, 19, 31, 0.9), rgba(2, 6, 23, 0.98));
       border-radius: 18px;
-      padding: 20px;
-      background:
-        linear-gradient(180deg, rgba(15, 23, 42, 0.9), rgba(2, 6, 23, 0.98)),
-        var(--terminal-bg);
-      border: 1px solid rgba(34, 197, 94, 0.16);
-      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03), inset 0 0 36px var(--terminal-glow);
-      white-space: pre-wrap;
-      line-height: 1.55;
-      color: #d1fae5;
+      border: 1px solid rgba(52, 211, 153, 0.18);
+      padding: 16px;
     }
 
-    .line {
-      margin: 0;
+    .log-line {
+      background: transparent;
+      border: 1px solid rgba(148, 163, 184, 0.09);
     }
 
-    .line.error {
+    .log-line.error {
       color: #fecaca;
+      border-color: rgba(248, 113, 113, 0.24);
     }
 
-    .line.meta {
-      color: #93c5fd;
+    .log-line.meta {
+      color: #c4e7ff;
     }
 
-    @media (max-width: 720px) {
-      .controls {
+    .empty {
+      color: var(--muted);
+      padding: 18px;
+      border: 1px dashed rgba(148, 163, 184, 0.24);
+      border-radius: 14px;
+      text-align: center;
+    }
+
+    @media (max-width: 1200px) {
+      .hero,
+      .metric-grid,
+      .kv {
         grid-template-columns: 1fr;
       }
 
-      .terminal {
-        margin: 0 18px 18px;
+      .span-8,
+      .span-7,
+      .span-5,
+      .span-4 {
+        grid-column: span 12;
+      }
+    }
+
+    @media (max-width: 760px) {
+      body {
+        padding: 14px;
       }
 
-      .header,
-      .controls,
-      .status {
-        padding-left: 18px;
-        padding-right: 18px;
+      .control-grid {
+        grid-template-columns: 1fr;
+      }
+
+      table,
+      thead,
+      tbody,
+      th,
+      td,
+      tr {
+        display: block;
+      }
+
+      thead {
+        display: none;
+      }
+
+      tbody tr {
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        margin-bottom: 12px;
+        padding: 10px;
+      }
+
+      td {
+        border-bottom: none;
+        padding: 8px 4px;
       }
     }
   </style>
 </head>
 <body>
   <main class="shell">
-    <section class="header">
-      <div class="title">
-        <h1>Local Minion Telemetry</h1>
-        <p>Observe autonomous implementation, validation, and bounded reflection in real time without leaving Visual Studio Code.</p>
+    <section class="hero">
+      <div>
+        <h1>Local Minion Command Console</h1>
+        <p>Persistent operational telemetry for autonomous minions. The dashboard renders directly from SQLite, so run history, worktree assignments, phase timing, model usage, reflections, and task outcomes remain visible after dashboard restarts.</p>
       </div>
-      <div class="badges">
-        <span class="badge" id="badge-gpt-4-1">GPT-4.1 idle</span>
-        <span class="badge" id="badge-gpt-5-mini">GPT-5 mini idle</span>
-        <span class="badge" id="badge-run-state">Awaiting task</span>
-      </div>
+      <div class="pill-row" id="hero-pills"></div>
     </section>
 
-    <form class="controls" id="task-form">
-      <input id="task-id" name="taskId" type="text" value="demo-task" autocomplete="off" spellcheck="false" aria-label="Task identifier">
-      <button id="launch-button" type="submit">Start Task</button>
-    </form>
+    <section class="panel">
+      <h2>System Overview</h2>
+      <div class="metric-grid" id="metric-grid"></div>
+    </section>
 
-    <div class="status" id="status-text">Connects to /stream automatically and appends logs as they arrive.</div>
-    <section class="terminal" id="terminal" aria-live="polite"></section>
+    <section class="grid">
+      <section class="panel span-4">
+        <h2>Dispatch</h2>
+        <form id="task-form" class="control-grid">
+          <input id="task-id" name="taskId" type="text" value="feature-dashboard-audit" autocomplete="off" spellcheck="false" aria-label="Task identifier">
+          <button id="launch-button" type="submit">Start Minion</button>
+        </form>
+        <div class="caption" id="dispatch-status">Dispatch from VS Code and monitor the resulting minion assignment, worktree, phase timing, and model usage below.</div>
+      </section>
+
+      <section class="panel span-8">
+        <h2>Model Guardrails</h2>
+        <div class="kv" id="guardrail-grid"></div>
+      </section>
+
+      <section class="panel span-7">
+        <h2>Minion Fleet</h2>
+        <div id="fleet-table"></div>
+      </section>
+
+      <section class="panel span-5">
+        <h2>Selected Task</h2>
+        <div id="task-summary" class="kv"></div>
+      </section>
+
+      <section class="panel span-7">
+        <h2>Task Breakdown</h2>
+        <div id="timeline" class="timeline"></div>
+      </section>
+
+      <section class="panel span-5">
+        <h2>Event Feed</h2>
+        <div id="event-feed" class="event-feed"></div>
+      </section>
+
+      <section class="panel span-12">
+        <h2>Live Minion Stream</h2>
+        <div id="terminal" class="terminal"></div>
+      </section>
+    </section>
   </main>
 
   <script>
+    const state = {
+      overview: null,
+      selectedTaskId: null,
+      taskDetail: null,
+      logs: []
+    };
+
+    const heroPills = document.getElementById('hero-pills');
+    const metricGrid = document.getElementById('metric-grid');
+    const guardrailGrid = document.getElementById('guardrail-grid');
+    const fleetTable = document.getElementById('fleet-table');
+    const taskSummary = document.getElementById('task-summary');
+    const timeline = document.getElementById('timeline');
+    const eventFeed = document.getElementById('event-feed');
     const terminal = document.getElementById('terminal');
-    const statusText = document.getElementById('status-text');
-    const form = document.getElementById('task-form');
+    const taskForm = document.getElementById('task-form');
     const taskIdInput = document.getElementById('task-id');
     const launchButton = document.getElementById('launch-button');
-    const badgeGpt41 = document.getElementById('badge-gpt-4-1');
-    const badgeGpt5Mini = document.getElementById('badge-gpt-5-mini');
-    const badgeRunState = document.getElementById('badge-run-state');
+    const dispatchStatus = document.getElementById('dispatch-status');
 
-    function setBadgeState(activeModel) {
-      badgeGpt41.classList.remove('active', 'success');
-      badgeGpt5Mini.classList.remove('active', 'success');
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#39;');
+    }
 
-      if (activeModel === 'gpt-4.1') {
-        badgeGpt41.classList.add('active');
-        badgeGpt41.textContent = 'GPT-4.1 active';
-        badgeGpt5Mini.textContent = 'GPT-5 mini idle';
-      } else if (activeModel === 'gpt-5-mini') {
-        badgeGpt5Mini.classList.add('active');
-        badgeGpt5Mini.textContent = 'GPT-5 mini active';
-        badgeGpt41.textContent = 'GPT-4.1 idle';
+    function formatDuration(seconds) {
+      if (seconds === null || seconds === undefined || Number.isNaN(Number(seconds))) {
+        return 'n/a';
       }
+      const rounded = Math.max(0, Number(seconds));
+      if (rounded < 1) {
+        return `${rounded.toFixed(2)}s`;
+      }
+      if (rounded < 60) {
+        return `${rounded.toFixed(1)}s`;
+      }
+      const minutes = Math.floor(rounded / 60);
+      const remainder = Math.round(rounded % 60);
+      return `${minutes}m ${remainder}s`;
     }
 
-    function markSuccessfulCompletion() {
-      badgeGpt41.classList.add('success');
-      badgeGpt5Mini.classList.add('success');
-      badgeRunState.classList.add('success');
-      badgeRunState.textContent = 'Task complete';
-      launchButton.disabled = false;
+    function formatDateTime(value) {
+      if (!value) {
+        return 'n/a';
+      }
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) {
+        return value;
+      }
+      return parsed.toLocaleString();
     }
 
-    function appendLine(text) {
+    function statusClass(status) {
+      return String(status || 'unknown').toLowerCase();
+    }
+
+    function renderHero(snapshot) {
+      const database = snapshot.database;
+      const counts = snapshot.counts;
+      const dashboard = snapshot.dashboard;
+      heroPills.innerHTML = `
+        <span class="pill ${database.status === 'connected' ? 'good' : 'warn'}">DB ${escapeHtml(database.status)}</span>
+        <span class="pill ${database.sqlite_vec_loaded ? 'good' : 'warn'}">sqlite-vec ${database.sqlite_vec_loaded ? 'loaded' : 'missing'}</span>
+        <span class="pill">Active minions ${escapeHtml(counts.active_runs)}</span>
+        <span class="pill">Recovered after restart ${escapeHtml(dashboard.recovered_runs)}</span>
+        <span class="pill">Uptime ${escapeHtml(formatDuration(dashboard.uptime_seconds))}</span>
+      `;
+    }
+
+    function renderMetrics(snapshot) {
+      const counts = snapshot.counts;
+      const dashboard = snapshot.dashboard;
+      metricGrid.innerHTML = `
+        <article class="metric">
+          <div class="label">Parallel Minions</div>
+          <div class="value">${escapeHtml(counts.active_runs)}</div>
+          <div class="subtext">Concurrent minions visible from persistent run state and active dashboard threads.</div>
+        </article>
+        <article class="metric">
+          <div class="label">Completed Runs</div>
+          <div class="value">${escapeHtml(counts.completed_runs)}</div>
+          <div class="subtext">Runs that reached terminal completion and persisted their timing and worktree metadata.</div>
+        </article>
+        <article class="metric">
+          <div class="label">Failed Or Interrupted</div>
+          <div class="value">${escapeHtml(counts.failed_runs + counts.interrupted_runs)}</div>
+          <div class="subtext">Persistent error visibility even after dashboard restarts.</div>
+        </article>
+        <article class="metric">
+          <div class="label">Dashboard Threads</div>
+          <div class="value">${escapeHtml(dashboard.active_threads.length)}</div>
+          <div class="subtext">Live worker threads currently attached to this dashboard process.</div>
+        </article>
+      `;
+    }
+
+    function renderGuardrails(snapshot) {
+      const policy = snapshot.model_policy;
+      const database = snapshot.database;
+      guardrailGrid.innerHTML = `
+        <article class="kv-card">
+          <div class="key">Allowed Models</div>
+          <div class="value">${escapeHtml(policy.allowed_models.join(', '))}</div>
+        </article>
+        <article class="kv-card">
+          <div class="key">Strict Enforcement</div>
+          <div class="value">${policy.strict_enforced ? 'Runtime-enforced in the DAG command builder' : 'disabled'}</div>
+        </article>
+        <article class="kv-card">
+          <div class="key">Disallowed Model Usage</div>
+          <div class="value">${escapeHtml(policy.disallowed_model_usages)}</div>
+        </article>
+        <article class="kv-card">
+          <div class="key">Database Path</div>
+          <div class="value">${escapeHtml(database.path)}</div>
+        </article>
+      `;
+    }
+
+    function pickDefaultTask(runs) {
+      if (!runs.length) {
+        return null;
+      }
+      const active = runs.find((run) => run.is_active);
+      return (active || runs[0]).task_id;
+    }
+
+    function renderFleet(snapshot) {
+      const runs = snapshot.runs || [];
+      if (!state.selectedTaskId) {
+        state.selectedTaskId = pickDefaultTask(runs);
+      }
+
+      if (!runs.length) {
+        fleetTable.innerHTML = '<div class="empty">No minion runs have been recorded yet.</div>';
+        return;
+      }
+
+      const rows = runs.map((run) => `
+        <tr data-task-id="${escapeHtml(run.task_id)}" class="${run.task_id === state.selectedTaskId ? 'selected' : ''}">
+          <td>${escapeHtml(run.minion_designation || 'n/a')}</td>
+          <td>${escapeHtml(run.task_id)}</td>
+          <td><span class="status ${statusClass(run.status)}">${escapeHtml(run.status)}</span></td>
+          <td>${escapeHtml(run.current_phase || 'n/a')}</td>
+          <td>${escapeHtml(run.active_model || 'n/a')}</td>
+          <td>${escapeHtml(run.worktree_name || 'n/a')}</td>
+          <td>${escapeHtml(formatDuration(run.elapsed_seconds))}</td>
+          <td>${escapeHtml(formatDateTime(run.updated_at))}</td>
+        </tr>
+      `).join('');
+
+      fleetTable.innerHTML = `
+        <table>
+          <thead>
+            <tr>
+              <th>Minion</th>
+              <th>Task</th>
+              <th>Status</th>
+              <th>Phase</th>
+              <th>Model</th>
+              <th>Worktree</th>
+              <th>Elapsed</th>
+              <th>Updated</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      `;
+
+      fleetTable.querySelectorAll('tbody tr').forEach((row) => {
+        row.addEventListener('click', () => {
+          state.selectedTaskId = row.dataset.taskId;
+          refreshTaskDetail();
+          renderFleet(state.overview);
+        });
+      });
+    }
+
+    function renderTaskSummary(detail) {
+      if (!detail || !detail.run) {
+        taskSummary.innerHTML = '<div class="empty">Select a task to inspect its persistent run state.</div>';
+        return;
+      }
+
+      const run = detail.run;
+      const items = [
+        ['Minion Designation', run.minion_designation || 'n/a'],
+        ['Task Type', run.task_type || 'n/a'],
+        ['Status', run.status || 'n/a'],
+        ['Current Phase', run.current_phase || 'n/a'],
+        ['Active Model', run.active_model || 'n/a'],
+        ['Worktree', run.worktree_path || 'n/a'],
+        ['Branch', run.branch_name || 'n/a'],
+        ['Reflections', run.reflection_attempts ?? 0],
+        ['Started', formatDateTime(run.started_at)],
+        ['Updated', formatDateTime(run.updated_at)],
+        ['Completed', formatDateTime(run.completed_at)],
+        ['Last Error', run.last_error || 'none']
+      ];
+
+      taskSummary.innerHTML = items.map(([key, value]) => `
+        <article class="kv-card">
+          <div class="key">${escapeHtml(key)}</div>
+          <div class="value">${escapeHtml(value)}</div>
+        </article>
+      `).join('');
+    }
+
+    function renderTimeline(detail) {
+      const phases = detail?.phases || [];
+      if (!phases.length) {
+        timeline.innerHTML = '<div class="empty">No phase timing has been recorded for this task yet.</div>';
+        return;
+      }
+
+      timeline.innerHTML = phases.map((phase) => `
+        <article class="timeline-item">
+          <div class="timeline-head">
+            <strong>${escapeHtml(phase.phase)}</strong>
+            <span class="status ${statusClass(phase.status)}">${escapeHtml(phase.status)}</span>
+          </div>
+          <div class="muted" style="margin-top: 8px;">${escapeHtml(phase.detail || 'No detail recorded.')}</div>
+          <div class="muted" style="margin-top: 10px;">Model: ${escapeHtml(phase.model || 'deterministic')} | Started: ${escapeHtml(formatDateTime(phase.started_at))} | Duration: ${escapeHtml(formatDuration(phase.duration_seconds))}</div>
+        </article>
+      `).join('');
+    }
+
+    function renderEvents(detail) {
+      const events = detail?.events || [];
+      if (!events.length) {
+        eventFeed.innerHTML = '<div class="empty">No event rows have been persisted for this task yet.</div>';
+        return;
+      }
+
+      eventFeed.innerHTML = events.map((event) => `
+        <article class="event-item">
+          <div class="event-head">
+            <strong>${escapeHtml(event.phase)}</strong>
+            <span class="muted">${escapeHtml(formatDateTime(event.created_at))}</span>
+          </div>
+          <div class="muted" style="margin-top: 10px;">${escapeHtml(event.message)}</div>
+        </article>
+      `).join('');
+    }
+
+    function appendLogLine(text) {
       if (!text) {
         return;
       }
 
-      const line = document.createElement('p');
-      line.className = 'line';
-      line.textContent = text;
+      state.logs.unshift(text);
+      state.logs = state.logs.slice(0, 250);
+      terminal.innerHTML = state.logs.map((line) => {
+        const classNames = ['log-line'];
+        if (/error|failed|exception/i.test(line)) {
+          classNames.push('error');
+        } else if (/^\[(dashboard|task:|setup|hydrate|implement|validation|reflection|reflect|finalize|dag)/i.test(line)) {
+          classNames.push('meta');
+        }
+        return `<div class="${classNames.join(' ')}">${escapeHtml(line)}</div>`;
+      }).join('');
+    }
 
-      if (/error|failed|exception/i.test(text)) {
-        line.classList.add('error');
-      } else if (/^\[(dashboard|setup|validation|finalize|reflect|implement)\]/i.test(text)) {
-        line.classList.add('meta');
+    async function refreshOverview() {
+      const response = await fetch('/api/overview');
+      const payload = await response.json();
+      state.overview = payload;
+      renderHero(payload);
+      renderMetrics(payload);
+      renderGuardrails(payload);
+      renderFleet(payload);
+      if (!state.selectedTaskId) {
+        state.selectedTaskId = pickDefaultTask(payload.runs || []);
+      }
+    }
+
+    async function refreshTaskDetail() {
+      if (!state.selectedTaskId) {
+        state.taskDetail = null;
+        renderTaskSummary(null);
+        renderTimeline(null);
+        renderEvents(null);
+        return;
       }
 
-      if (text.includes('gpt-4.1')) {
-        setBadgeState('gpt-4.1');
+      const response = await fetch(`/api/task/${encodeURIComponent(state.selectedTaskId)}`);
+      if (!response.ok) {
+        state.taskDetail = null;
+        renderTaskSummary(null);
+        renderTimeline(null);
+        renderEvents(null);
+        return;
       }
+      state.taskDetail = await response.json();
+      renderTaskSummary(state.taskDetail);
+      renderTimeline(state.taskDetail);
+      renderEvents(state.taskDetail);
+    }
 
-      if (text.includes('gpt-5-mini') || text.includes('GPT-5 mini')) {
-        setBadgeState('gpt-5-mini');
+    async function refreshAll() {
+      try {
+        await refreshOverview();
+        await refreshTaskDetail();
+      } catch (error) {
+        dispatchStatus.textContent = `Dashboard refresh failed: ${error.message}`;
       }
-
-      if (/completed successfully|task complete/i.test(text)) {
-        markSuccessfulCompletion();
-      }
-
-      if (/starting task/i.test(text)) {
-        badgeRunState.classList.remove('success');
-        badgeRunState.textContent = 'Task running';
-      }
-
-      terminal.appendChild(line);
-      terminal.scrollTop = terminal.scrollHeight;
     }
 
     const source = new EventSource('/stream');
-    source.onopen = () => {
-      statusText.textContent = 'Telemetry stream connected.';
-    };
-
+    source.onmessage = (event) => appendLogLine(event.data);
     source.onerror = () => {
-      statusText.textContent = 'Telemetry stream disconnected. The page will retry automatically.';
+      appendLogLine('[dashboard] telemetry stream temporarily unavailable; reconnecting automatically');
     };
 
-    source.onmessage = (event) => {
-      appendLine(event.data);
-    };
-
-    form.addEventListener('submit', async (event) => {
+    taskForm.addEventListener('submit', async (event) => {
       event.preventDefault();
       const taskId = taskIdInput.value.trim();
       if (!taskId) {
-        statusText.textContent = 'Enter a task identifier before starting a run.';
+        dispatchStatus.textContent = 'Enter a task identifier before dispatching a minion.';
         return;
       }
 
       launchButton.disabled = true;
-      badgeRunState.classList.remove('success');
-      badgeRunState.textContent = 'Dispatching task';
-      statusText.textContent = `Starting task ${taskId}...`;
-      appendLine(`[dashboard] POST /start_task/${taskId}`);
-
+      dispatchStatus.textContent = `Dispatching ${taskId}...`;
       try {
         const response = await fetch(`/start_task/${encodeURIComponent(taskId)}`, { method: 'POST' });
         const payload = await response.json();
         if (!response.ok) {
-          throw new Error(payload.error || 'Unable to start task.');
+          throw new Error(payload.error || 'Unable to dispatch task.');
         }
-
-        statusText.textContent = `Task ${payload.task_id} ${payload.status}.`;
-        if (payload.status === 'already-running') {
-          launchButton.disabled = false;
-          badgeRunState.textContent = 'Task already running';
-        }
+        state.selectedTaskId = payload.task_id;
+        dispatchStatus.textContent = `Task ${payload.task_id} ${payload.status}.`;
+        appendLogLine(`[dashboard] dispatched ${payload.task_id}`);
+        await refreshAll();
       } catch (error) {
+        dispatchStatus.textContent = error.message;
+        appendLogLine(`[dashboard] ${error.message}`);
+      } finally {
         launchButton.disabled = false;
-        badgeRunState.textContent = 'Dispatch failed';
-        appendLine(`[dashboard] ${error.message}`);
-        statusText.textContent = error.message;
       }
     });
+
+    refreshAll();
+    window.setInterval(refreshAll, 2000);
   </script>
 </body>
 </html>
