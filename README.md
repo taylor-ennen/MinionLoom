@@ -1,6 +1,6 @@
-# Local Minion
+# Minion Loom - WIP
 
-Local Minion is a Windows-first local orchestration plugin that runs task-specific minion branches and worktrees, tracks runs in SQLite, and exposes a Flask dashboard for dispatch, telemetry, retries, cancellation, and cleanup.
+Minion Loom is a local orchestration plugin that runs task-specific minion branches and worktrees, tracks runs in SQLite, and exposes a Flask dashboard for dispatch, telemetry, retries, cancellation, and cleanup.
 
 ## What Is Included
 
