@@ -62,7 +62,11 @@ class CommandResult:
 
 def should_skip_implementation(task_id: str) -> bool:
     normalized_task_id = task_id.lower()
-    return normalized_task_id.startswith('selftest') or normalized_task_id.startswith('diagnostic')
+    return (
+        normalized_task_id.startswith('selftest')
+        or normalized_task_id.startswith('diagnostic')
+        or normalized_task_id.startswith('status')
+    )
 
 
 def determine_task_type(task_id: str) -> str:
@@ -874,6 +878,11 @@ def run_implementation(context: TaskContext, hydrated_context: str, connection: 
     if should_skip_implementation(context.task_id):
         phase_id = start_phase(connection, context.task_id, 'implement', detail='Diagnostic self-test does not invoke Copilot')
         emit_log('[implement] self-test mode active; skipping Copilot implementation phase', log_queue)
+
+        if context.task_id.lower().startswith('status'):
+            snapshot = get_system_snapshot(limit=20)
+            emit_log(f'[implement] status snapshot: {json.dumps(snapshot, indent=2)}', log_queue)
+
         finish_phase(connection, phase_id, status='skipped', detail='Self-test mode active')
         update_run(connection, context.task_id, active_model='diagnostic-only')
         return
