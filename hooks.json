@@ -4,7 +4,7 @@
     "preToolUse": [
       {
         "name": "safety-gate",
-        "command": "pwsh -NoProfile -Command \"$payload = [Console]::In.ReadToEnd(); if ($payload -match 'git reset --hard|Remove-Item\\s+-Recurse\\s+-Force|del\\s+/f\\s+/s\\s+/q') { [Console]::Error.WriteLine('Blocked destructive tool invocation by local-minion safety gate.'); exit 1 }\""
+        "command": "pwsh -NoProfile -Command \"$payload = [Console]::In.ReadToEnd(); if ($payload -match 'git reset --hard|Remove-Item\\s+-Recurse\\s+-Force|del\\s+/f\\s+/s\\s+/q') { [Console]::Error.WriteLine('Blocked destructive tool invocation by MinionLoom safety gate.'); exit 1 }\""
       }
     ],
     "postToolUse": [

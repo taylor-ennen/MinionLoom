@@ -1224,14 +1224,14 @@
     const layoutToggles = Array.from(document.querySelectorAll('[data-layout-mode]'));
 
     function loadLayoutMode() {
-      const stored = window.localStorage.getItem('local-minion-dashboard-layout');
+      const stored = window.localStorage.getItem('minionloom-dashboard-layout');
       return stored === 'ide' ? 'ide' : 'console';
     }
 
     function applyLayoutMode(layoutMode) {
       state.layoutMode = layoutMode === 'ide' ? 'ide' : 'console';
       document.body.dataset.layout = state.layoutMode;
-      window.localStorage.setItem('local-minion-dashboard-layout', state.layoutMode);
+      window.localStorage.setItem('minionloom-dashboard-layout', state.layoutMode);
       layoutToggles.forEach((button) => {
         button.classList.toggle('active', button.dataset.layoutMode === state.layoutMode);
       });

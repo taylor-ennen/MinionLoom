@@ -23,7 +23,7 @@ MINION_ROOT = Path(__file__).resolve().parents[1]
 DB_PATH = MINION_ROOT / 'minion_state.db'
 ENV_MANAGER_PATH = MINION_ROOT / 'scripts' / 'env_manager.ps1'
 MAX_REFLECTIONS = 2
-IMPLEMENTER_AGENT = 'local-minion/implementer'
+IMPLEMENTER_AGENT = 'minionloom/implementer'
 ALLOWED_MODELS = ('gpt-4.1', 'gpt-5-mini')
 RUNNING_STATUSES = {'queued', 'running'}
 TERMINAL_STATUSES = {'complete', 'failed', 'interrupted'}
@@ -926,7 +926,7 @@ if (
         exit 1
     }
 
-    & $venvPython -c "import sys; from pathlib import Path; root = Path.cwd(); sys.path.insert(0, str(root)); import orchestrator.dag; import dashboard.app; conn = orchestrator.dag.initialize_database(); conn.close(); print('local-minion self-test ok')"
+    & $venvPython -c "import sys; from pathlib import Path; root = Path.cwd(); sys.path.insert(0, str(root)); import orchestrator.dag; import dashboard.app; conn = orchestrator.dag.initialize_database(); conn.close(); print('minionloom self-test ok')"
     exit $LASTEXITCODE
 }
 
