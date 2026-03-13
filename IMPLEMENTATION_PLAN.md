@@ -4,7 +4,7 @@
 This document tracks the implementation plan and progress for the following enhancements:
 - Promptable `/research` and `/status` commands using Copilot chat instructions and documentation
 - Dashboard redesign with a CLI-inspired look (still Flask-based)
-- Replace all 'Local Minion' branding with '< MinionLoom >'
+- Replace all 'Local Minion' branding with '< MinionLoom >' (completed)
 - Commit each change separately
 - Use minions to optimize Copilot chat token usage where possible
 - Test features and maintain project cohesion

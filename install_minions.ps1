@@ -160,7 +160,8 @@ try {
 }
 
 if ($IntegrateWithParent) {
-    Write-Host 'Local Minion installation completed successfully with parent integration.'
+    Write-Host 'MinionLoom installation completed successfully with parent integration (workspace files may be modified).'
+    Write-Host 'WARNING: This mode writes to VS Code and GitHub workspace files. Use only when you want explicit integration.'
 } else {
-    Write-Host 'Local Minion installation completed successfully in local-only mode.'
+    Write-Host 'MinionLoom installation completed successfully in local-only mode (no workspace files modified).'
 }

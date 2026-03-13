@@ -1,5 +1,5 @@
 {
-  "name": "local-minion",
+  "name": "minionloom",
   "version": "1.0.0",
   "agents": "agents/",
   "skills": "skills/",
