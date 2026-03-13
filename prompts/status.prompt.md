@@ -17,4 +17,4 @@ Use this command to:
 /status system
 
 ---
-This prompt is used by the Copilot CLI/chat and MinionLoom agents to provide status updates.
+This prompt is used by the Copilot CLI/chat and MinionLoom agents to provide status updates. (Last updated: 2026-03-13)
