@@ -12,7 +12,12 @@ Use this command to:
 
 ## Usage
 /status [task_id|minion|system]
+To get the current MinionLoom status from this repository, you can run:
 
+```powershell
+cd .github/minions
+.\.venv\Scripts\python.exe orchestrator\dag.py status
+```
 ## Example
 /status system
 
