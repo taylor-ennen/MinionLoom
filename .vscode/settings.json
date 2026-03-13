@@ -1,0 +1,6 @@
+{
+  // Ensure Copilot CLI/chat can discover MinionLoom prompts when running in the plugin folder.
+  "copilot.prompts.paths": [
+    ".github/minions/prompts"
+  ]
+}
