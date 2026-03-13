@@ -13,14 +13,26 @@ It does NOT overwrite other settings. It merges this setting into any existing f
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$minionRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
-$projectRoot = Split-Path -Parent $minionRoot
-$vscodeDir = Join-Path $projectRoot '.vscode'
-$settingsPath = Join-Path $vscodeDir 'settings.json'
+$scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$minionRoot = Split-Path -Parent $scriptRoot
+$dotGithub = Split-Path -Parent $minionRoot
+# Repository root is the parent of .github
+$repoRoot = Split-Path -Parent $dotGithub
 
-if (-not (Test-Path -LiteralPath $vscodeDir)) {
+# Prefer existing VS Code config locations; fall back to the standard .vscode folder.
+$possibleDirs = @(
+    (Join-Path $repoRoot '.vscode'),
+    (Join-Path $repoRoot '.github\vscode')
+)
+
+# Pick the first existing location, otherwise default to .vscode
+$vscodeDir = $possibleDirs | Where-Object { Test-Path $_ } | Select-Object -First 1
+if (-not $vscodeDir) {
+    $vscodeDir = Join-Path $projectRoot '.vscode'
     New-Item -ItemType Directory -Path $vscodeDir -Force | Out-Null
 }
+
+$settingsPath = Join-Path $vscodeDir 'settings.json'
 
 function Read-JsonFile($path) {
     if (-not (Test-Path $path)) { return @{} }
@@ -31,7 +43,7 @@ function Read-JsonFile($path) {
 
 $settings = Read-JsonFile $settingsPath
 
-if (-not $settings.ContainsKey('copilot.prompts.paths')) {
+if (-not ($settings.PSObject.Properties.Name -contains 'copilot.prompts.paths')) {
     $settings.'copilot.prompts.paths' = @()
 }
 
@@ -40,4 +52,4 @@ if (-not ($settings.'copilot.prompts.paths' -contains '.github/minions/prompts')
 }
 
 $settings | ConvertTo-Json -Depth 10 | Set-Content -LiteralPath $settingsPath -Encoding UTF8
-Write-Host "Updated VS Code settings at $settingsPath to include .github/minions/prompts"
+Write-Host "Updated VS Code settings at $settingsPath to include .github/minions/prompts (prompt path configured)."
