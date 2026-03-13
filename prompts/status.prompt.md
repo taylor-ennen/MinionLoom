@@ -1,20 +1,20 @@
 ---
 title: /status
-summary: Get the current status of MinionLoom tasks, agents, or system health.
+summary: Get the current status of MinionLoom tasks, minions, or system health.
 ---
 
 # /status
 
 Use this command to:
-- Report the status of a task, agent, or the system
+- Report the status of a task, minion, or the system
 - Summarize recent activity or errors
 - Provide actionable next steps
 
 ## Usage
-/status [task_id|agent|system]
+/status [task_id|minion|system]
 
 ## Example
 /status system
 
 ---
-This prompt is used by the Copilot CLI/chat and MinionLoom agents to provide status updates. (Last updated: 2026-03-13)
+This prompt is used by the Copilot CLI/chat and MinionLoom minions to provide status updates. (Last updated: 2026-03-13)
