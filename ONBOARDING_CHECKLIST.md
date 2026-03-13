@@ -4,14 +4,14 @@ This checklist ensures all contributors and AI agents are properly set up to use
 
 ---
 
-## 1. Clone and Install
-- [ ] Clone the repository
-- [ ] Run `.github/minions/install_minions.ps1`
+## 1. Environment Setup
+- [ ] Run `.github/minions/install_minions.ps1` to set up your environment
+- [ ] (See the main [README.md](../../README.md) for initial project setup)
 
 ## 2. Prompt Path Configuration
 - [ ] Confirm all prompt files are in `.github/minions/prompts/`
-- [ ] Configure Copilot CLI/chat or your extension to scan `.github/minions/prompts/`
-- [ ] Test `/research`, `/status`, `/continue` in your chat/CLI
+- [ ] Run `.github/minions/scripts/setup-vscode-prompt-path.ps1` to configure VS Code to include `.github/minions/prompts`
+- [ ] Test `/research`, `/status`, `/continue` in your chat/CLI or Copilot
 
 ## 3. Read Documentation
 - [ ] Review the main [README.md](../../README.md)

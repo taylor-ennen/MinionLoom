@@ -19,8 +19,9 @@ This guide documents the required setup for AI agents, Copilot CLI/chat, and VS 
 ## 3. Project Integration Steps
 1. Place all prompt files in `.github/minions/prompts/`.
 2. Document this path in the main `README.md` and in this setup guide.
-3. Ensure all AI agents and extensions are pointed to this directory for prompt discovery.
-4. Test prompt discovery by running `/research`, `/status`, and `/continue` in Copilot CLI/chat or your AI agent.
+3. (Optional) Run `.github/minions/scripts/setup-vscode-prompt-path.ps1` to update your VS Code workspace settings to include the prompt path.
+4. Ensure all AI agents and extensions are pointed to this directory for prompt discovery.
+5. Test prompt discovery by running `/research`, `/status`, and `/continue` in Copilot CLI/chat or your AI agent.
 
 ## 4. Example Prompts
 - `/research` → `.github/minions/prompts/research.prompt.md`
