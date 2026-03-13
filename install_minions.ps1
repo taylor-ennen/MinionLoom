@@ -162,6 +162,9 @@ try {
 if ($IntegrateWithParent) {
     Write-Host 'MinionLoom installation completed successfully with parent integration (workspace files may be modified).'
     Write-Host 'WARNING: This mode writes to VS Code and GitHub workspace files. Use only when you want explicit integration.'
+
+    # Configure VS Code to include the MinionLoom prompt path (copilot.prompts.paths)
+    & "$minionRoot\scripts\setup-vscode-prompt-path.ps1"
 } else {
     Write-Host 'MinionLoom installation completed successfully in local-only mode (no workspace files modified).'
 }
