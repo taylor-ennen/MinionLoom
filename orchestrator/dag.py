@@ -606,12 +606,12 @@ def cleanup_task_worktree(task_id: str) -> dict[str, Any]:
 
 
 def ensure_branch_visible_in_graph(context: TaskContext, connection: sqlite3.Connection, log_queue: QueueLike | None) -> None:
-    marker_message = f'Initialize Local Minion task branch for {context.task_id}'
+    marker_message = f'Initialize < MinionLoom > task branch for {context.task_id}'
     result = execute_process(
         [
             'git',
-            '-c', 'user.name=Local Minion',
-            '-c', 'user.email=local-minion@users.noreply.github.com',
+            '-c', 'user.name=< MinionLoom >',
+            '-c', 'user.email=minionloom@users.noreply.github.com',
             'commit', '--allow-empty', '-m', marker_message,
         ],
         cwd=context.worktree_path,
@@ -922,7 +922,7 @@ if (
 ) {
     $venvPython = Join-Path $PWD '.venv\Scripts\python.exe'
     if (-not (Test-Path $venvPython)) {
-        Write-Error 'Expected local Minion virtual environment was not found for self-test mode.'
+        Write-Error 'Expected < MinionLoom > virtual environment was not found for self-test mode.'
         exit 1
     }
 
@@ -1415,7 +1415,7 @@ def mark_stale_runs_interrupted() -> int:
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description='Run the Local Minion DAG orchestrator.')
+    parser = argparse.ArgumentParser(description='Run the < MinionLoom > DAG orchestrator.')
     parser.add_argument('task_id', help='Identifier for the task to execute.')
     return parser.parse_args(argv)
 
