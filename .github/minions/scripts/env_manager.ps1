@@ -81,7 +81,11 @@ try {
         & git config core.symlinks true | Out-Null
 
         $branchName = Get-UniqueBranchName -BaseName $branchBase
-        $runtimeRoot = Join-Path (Join-Path $env:LOCALAPPDATA 'LocalMinion\worktrees') $workspaceName
+
+        # NOTE: The runtime worktree location is under LOCALAPPDATA to avoid
+        # cluttering the user workspace with temporary git worktree directories.
+        # This used to be named "LocalMinion"; rename it to MinionLoom for branding.
+        $runtimeRoot = Join-Path (Join-Path $env:LOCALAPPDATA 'MinionLoom\worktrees') $workspaceName
         New-Item -ItemType Directory -Force -Path $runtimeRoot | Out-Null
         $worktreePath = Join-Path $runtimeRoot "minion-workspace-$taskSlug"
 
