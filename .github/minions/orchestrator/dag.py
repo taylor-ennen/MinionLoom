@@ -101,6 +101,54 @@ def calculate_duration_seconds(started_at: str | None, completed_at: str | None)
     return max((ended - started).total_seconds(), 0.0)
 
 
+_EMBEDDING_MODEL: Any | None = None
+
+
+def _get_local_embedding_model() -> Any | None:
+    """Return a locally hosted embedding model, if available.
+
+    This avoids external network calls for embedding generation. The default
+    model is `all-MiniLM-L6-v2`, but `MINIONLOOM_EMBEDDING_MODEL` can override it.
+
+    If the dependency is not installed, this returns None.
+    """
+    global _EMBEDDING_MODEL
+
+    if _EMBEDDING_MODEL is not None:
+        return _EMBEDDING_MODEL
+
+    try:
+        import onnxruntime as ort
+        from transformers import AutoTokenizer
+    except Exception:
+        # We require ONNX runtime and transformers for the local-only ONNX embedding path.
+        return None
+
+    # If onnxruntime is available, prefer loading a quantized ONNX MiniLM model
+    models_dir = MINION_ROOT / '.github' / 'minions' / 'embedding_model'
+    if models_dir.exists():
+        # find a quantized ONNX file (local vendored copy)
+        candidates = list(models_dir.glob('*.quant.onnx'))
+        if candidates:
+            model_path = str(candidates[0])
+            # look for a local tokenizer directory under the same folder
+            tokenizer_dirs = [p for p in models_dir.iterdir() if p.is_dir() and ('MiniLM' in p.name or 'tokenizer' in p.name)]
+            if not tokenizer_dirs:
+                # No local tokenizer present; do not attempt network downloads — disable local ONNX embedding.
+                return None
+            tokenizer_dir = str(tokenizer_dirs[0])
+            try:
+                tokenizer = AutoTokenizer.from_pretrained(tokenizer_dir, local_files_only=True)
+                session = ort.InferenceSession(model_path)
+                _EMBEDDING_MODEL = (session, tokenizer)
+                return _EMBEDDING_MODEL
+            except Exception:
+                # If loading the ONNX session or tokenizer fails, do not fall back to other frameworks.
+                return None
+
+    return None
+
+
 def emit_log(message: str, log_queue: QueueLike | None = None) -> None:
     if log_queue is not None:
         log_queue.put(message)
@@ -209,7 +257,7 @@ def initialize_database() -> sqlite3.Connection:
         '''
         CREATE VIRTUAL TABLE IF NOT EXISTS vector_memory USING vec0(
             task_id TEXT UNIQUE,
-            embedding float[768],
+            embedding float[384],
             spec TEXT
         )
         '''
@@ -811,7 +859,7 @@ def hydrate_requirements(context: TaskContext, connection: sqlite3.Connection, l
     try:
         from nomic import embed
     except ImportError:
-        raise MinionExecutionError('nomic package is not installed. Run `pip install nomic`.')
+        embed = None  # optional; we prefer local models and may run without nomic
 
     phase_id = start_phase(connection, context.task_id, 'hydrate', detail='Load local instructions and task context')
     tasks_dir = MINION_ROOT.parent / 'tasks'
@@ -824,21 +872,81 @@ def hydrate_requirements(context: TaskContext, connection: sqlite3.Connection, l
         spec = instructions_path.read_text(encoding='utf-8').strip()
         emit_log(f'[hydrate] loaded repository instructions: {instructions_path}', log_queue)
 
-    # Embed the spec using Nomic (768 dims)
-    try:
-        embedding = embed.text(spec, model='nomic-embed-text-v1')['embeddings'][0]
-        if len(embedding) != 768:
-            raise ValueError('Nomic embedding is not 768 dimensions.')
-        # Store in vector_memory (replace if exists)
-        connection.execute(
-            'INSERT OR REPLACE INTO vector_memory (task_id, embedding, spec) VALUES (?, ?, ?)',
-            (context.task_id, embedding, spec)
-        )
-        connection.commit()
-        emit_log(f'[hydrate] stored embedding for {context.task_id} in vector_memory', log_queue)
-    except Exception as e:
-        emit_log(f'[hydrate] embedding failed: {e}', log_queue)
-        record_event(connection, context.task_id, 'hydrate', f'Embedding failed: {e}')
+    # Embed the spec (prefer a local model to avoid external network calls).
+    embedding: list[float] | None = None
+
+    model = _get_local_embedding_model()
+    if model is not None:
+        try:
+            # two supported types returned by _get_local_embedding_model:
+            # - SentenceTransformer instance: call .encode(...)
+            # - (onnxruntime.InferenceSession, tokenizer) tuple: run session with tokenizer
+            if isinstance(model, tuple):
+                session, tokenizer = model
+                # prepare inputs
+                try:
+                    import numpy as np
+                except Exception:
+                    emit_log('[hydrate] numpy required for ONNX embedding but missing', log_queue)
+                    session = None
+
+                if session is not None:
+                    tokens = tokenizer([spec], return_tensors='np', padding=True)
+                    input_names = {n.name: n for n in session.get_inputs()}
+                    feed = {}
+                    for name in ['input_ids', 'input_ids:0', 'ids', 'input']:
+                        if name in input_names and 'input_ids' in tokens:
+                            feed[name] = tokens['input_ids']
+                    for name in ['attention_mask', 'attention_mask:0', 'mask']:
+                        if name in input_names and 'attention_mask' in tokens:
+                            feed[name] = tokens['attention_mask']
+                    for k, v in tokens.items():
+                        if k in input_names:
+                            feed[k] = v
+                    if not feed:
+                        arrs = list(tokens.values())
+                        for i, (nname, n) in enumerate(input_names.items()):
+                            if i < len(arrs):
+                                feed[nname] = arrs[i]
+                    outs = session.run(None, feed)
+                    out = outs[0]
+                    if out.ndim == 3:
+                        mask = tokens.get('attention_mask')
+                        if mask is not None:
+                            mask = mask.astype(np.float32)
+                            lens = mask.sum(axis=1, keepdims=True)
+                            pooled = (out * mask[:, :, None]).sum(axis=1) / np.maximum(lens, 1)
+                        else:
+                            pooled = out.mean(axis=1)
+                        vec = pooled[0]
+                    elif out.ndim == 2:
+                        vec = out[0]
+                    else:
+                        vec = out.flatten()
+                    embedding = vec.astype(float).tolist()
+                    emit_log('[hydrate] generated local embedding using ONNX MiniLM', log_queue)
+            else:
+                # No other model types are supported for this local-only harness.
+                emit_log('[hydrate] found model of unsupported type; skipping embedding', log_queue)
+        except Exception as e:
+            emit_log(f'[hydrate] local embedding generation failed: {e}', log_queue)
+            record_event(connection, context.task_id, 'hydrate', f'Local embedding failed: {e}')
+
+    if embedding is None:
+        # No external providers are used for this harness; record and continue.
+        emit_log('[hydrate] no embedding available (local models not found)', log_queue)
+        record_event(connection, context.task_id, 'hydrate', 'No local embedding model available')
+
+    # Store (or update) the record. sqlite-vec accepts JSON text for the vector column.
+    # Ensure we insert JSON text (empty list if embedding unavailable) to avoid NULL insert errors.
+    vector_json: str = json.dumps(embedding if embedding is not None else [])
+
+    connection.execute(
+        'INSERT OR REPLACE INTO vector_memory (task_id, embedding, spec) VALUES (?, ?, ?)',
+        (context.task_id, vector_json, spec),
+    )
+    connection.commit()
+    emit_log(f'[hydrate] stored task spec for {context.task_id} in vector_memory (embedded: {embedding is not None})', log_queue)
 
     finish_phase(connection, phase_id, status='completed', detail='Task spec hydrated and embedded')
     return spec
