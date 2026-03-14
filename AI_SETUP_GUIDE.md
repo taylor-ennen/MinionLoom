@@ -28,6 +28,10 @@ This guide documents the required setup for AI agents, Copilot CLI/chat, and VS 
 - `/status` → `.github/minions/prompts/status.prompt.md`
 - `/continue` → `.github/minions/prompts/continue.prompt.md`
 
+## 5. Docs / Single Source of Truth
+- The canonical prompt integration docs live here in `AI_SETUP_GUIDE.md`.
+- The old `prompts/README.md` is redundant and has been removed to avoid confusion.
+
 ## 5. Troubleshooting
 - If a prompt does not appear, verify:
   - The prompt file exists in `.github/minions/prompts/`.
