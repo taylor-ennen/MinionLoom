@@ -801,12 +801,47 @@ def setup_environment(task_id: str, connection: sqlite3.Connection, log_queue: Q
 
 
 def hydrate_requirements(context: TaskContext, connection: sqlite3.Connection, log_queue: QueueLike | None) -> str:
+    """
+    Hydrate requirements for a task:
+    - Loads task spec from tasks/{task_id}.md if available, else falls back to copilot-instructions.md.
+    - Embeds the spec using Nomic and stores in vector_memory (task_id, embedding, spec).
+    - Always commit changes after editing this logic. (See repo instructions.)
+    """
+    import os
+    try:
+        from nomic import embed
+    except ImportError:
+        raise MinionExecutionError('nomic package is not installed. Run `pip install nomic`.')
+
     phase_id = start_phase(connection, context.task_id, 'hydrate', detail='Load local instructions and task context')
-    instructions_path = MINION_ROOT / 'templates' / 'copilot-instructions.md'
-    instructions = instructions_path.read_text(encoding='utf-8').strip()
-    emit_log(f'[hydrate] loaded repository instructions: {instructions}', log_queue)
-    finish_phase(connection, phase_id, status='completed', detail='Instruction template loaded')
-    return instructions
+    tasks_dir = MINION_ROOT.parent / 'tasks'
+    spec_path = tasks_dir / f'{context.task_id}.md'
+    if spec_path.exists():
+        spec = spec_path.read_text(encoding='utf-8').strip()
+        emit_log(f'[hydrate] loaded task spec: {spec_path}', log_queue)
+    else:
+        instructions_path = MINION_ROOT / 'templates' / 'copilot-instructions.md'
+        spec = instructions_path.read_text(encoding='utf-8').strip()
+        emit_log(f'[hydrate] loaded repository instructions: {instructions_path}', log_queue)
+
+    # Embed the spec using Nomic (768 dims)
+    try:
+        embedding = embed.text(spec, model='nomic-embed-text-v1')['embeddings'][0]
+        if len(embedding) != 768:
+            raise ValueError('Nomic embedding is not 768 dimensions.')
+        # Store in vector_memory (replace if exists)
+        connection.execute(
+            'INSERT OR REPLACE INTO vector_memory (task_id, embedding, spec) VALUES (?, ?, ?)',
+            (context.task_id, embedding, spec)
+        )
+        connection.commit()
+        emit_log(f'[hydrate] stored embedding for {context.task_id} in vector_memory', log_queue)
+    except Exception as e:
+        emit_log(f'[hydrate] embedding failed: {e}', log_queue)
+        record_event(connection, context.task_id, 'hydrate', f'Embedding failed: {e}')
+
+    finish_phase(connection, phase_id, status='completed', detail='Task spec hydrated and embedded')
+    return spec
 
 
 def stream_process_output(
