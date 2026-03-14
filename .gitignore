@@ -20,3 +20,6 @@
 # Example:
 # !/some-other-folder/
 # !/some-file.ext
+
+# Workspace scratch area for in-progress work (ignored)
+/work/
