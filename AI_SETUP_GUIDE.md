@@ -83,6 +83,35 @@ Any tool that consumes Copilot prompts must be configured to scan that path.
 
 ---
 
+## sqlite-vec Extension Requirement
+
+MinionLoom uses the sqlite-vec extension for vector search and embedding storage in SQLite. This extension is NOT included with standard Python or SQLite installations.
+
+### How to Obtain sqlite-vec
+- Download or build the sqlite-vec extension from the official repository: https://github.com/asg017/sqlite-vec
+- Place the compiled `vec0` (or platform-appropriate) shared library in a known location on your system.
+
+### How to Load sqlite-vec in Python
+Add the following code before any vector operations:
+
+```python
+import sqlite3
+conn = sqlite3.connect('minion_state.db')
+try:
+    conn.enable_load_extension(True)
+    conn.load_extension('/path/to/vec0')  # Update with your actual path
+except Exception as e:
+    raise RuntimeError(f"Failed to load sqlite-vec extension: {e}")
+```
+
+- If the extension is not loaded, vector operations will fail with `no such module: vec0`.
+- Ensure your Python environment allows extension loading (may require admin privileges).
+
+### Troubleshooting
+- If you see `sqlite3.OperationalError: no such module: vec0`, the extension is not loaded or not found.
+- Check your Python, SQLite, and OS compatibility with the extension.
+
+---
 
 ## 4. Verify installation (minimal sanity checks)
 
