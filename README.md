@@ -6,7 +6,7 @@ MinionLoom is a modular, agent-driven automation and orchestration system for lo
 
 ## Quick Start
 - Clone this repo
-- Run the installer in `.github/minions/install_minions.ps1`
+- Read and follow the [AI setup guide](AI_SETUP_GUIDE.md)
 - Start the dashboard: `.github/minions/dashboard/app.py`
 
 ---
@@ -16,7 +16,7 @@ MinionLoom is a modular, agent-driven automation and orchestration system for lo
   - `.github/minions/prompts/`
 - Supported commands: `/research`, `/status`, `/continue` (see prompts folder for more)
 - For setup and integration, see [the AI setup guide](AI_SETUP_GUIDE.md)
-- To configure VS Code for prompt discovery, run: `.github/minions/scripts/setup-vscode-prompt-path.ps1`
+- To configure VS Code for prompt discovery, follow the instructions under "Configure prompt discovery" in `AI_SETUP_GUIDE.md`.
 
 ---
 
