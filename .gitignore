@@ -4,6 +4,11 @@
 # Allow git metadata and ignore config
 !.gitignore
 
+# Allow a small set of root docs (public entry points)
+!/README.md
+!/AI_SETUP_GUIDE.md
+!/ONBOARDING_CHECKLIST.md
+
 # Allow the minions plugin folder (only this folder is tracked)
 !/.github/
 /.github/*
