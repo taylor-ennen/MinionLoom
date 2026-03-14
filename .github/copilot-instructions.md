@@ -24,5 +24,8 @@ This file is used by Copilot chat and Copilot CLI to guide AI behavior when oper
   ```
 - For `/continue`, follow the current implementation plan and take the next logical step.
 
----
-This file is automatically used by Copilot chat/CLI; treat it as the authoritative instruction document for AI interaction with the repository.
+## OSS & Testing Considerations
+- The `tests/` directory is excluded from the open-source distribution via `.gitignore`. Local-only test scripts (e.g., for sqlite-vec integration) are not part of the OSS release and are for developer validation only.
+- Advanced vector search (embedding similarity) requires the `sqlite-vec` extension, which is not bundled with Python or SQLite. This must be installed separately for local vector search features.
+- Basic SQLite features require no setup and work out of the box. Vector search is optional and only needed for AI/embedding use cases.
+- This application is designed for local, user-installed operation. SQLite is chosen for its zero-setup, cross-platform nature, and suitability for single-user, local-first workflows. If multi-user or networked scenarios are needed, consider a client-server DB (e.g., Postgres) with pgvector.

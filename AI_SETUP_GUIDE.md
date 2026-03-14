@@ -85,31 +85,25 @@ Any tool that consumes Copilot prompts must be configured to scan that path.
 
 ## sqlite-vec Extension Requirement
 
-MinionLoom uses the sqlite-vec extension for vector search and embedding storage in SQLite. This extension is NOT included with standard Python or SQLite installations.
 
-### How to Obtain sqlite-vec
-- Download or build the sqlite-vec extension from the official repository: https://github.com/asg017/sqlite-vec
-- Place the compiled `vec0` (or platform-appropriate) shared library in a known location on your system.
+MinionLoom uses the sqlite-vec extension for vector search and embedding storage in SQLite. As of 2026, sqlite-vec provides a Python package for easy installation.
 
-### How to Load sqlite-vec in Python
-Add the following code before any vector operations:
+### How to Install sqlite-vec
+- Simply run:
 
-```python
-import sqlite3
-conn = sqlite3.connect('minion_state.db')
-try:
-    conn.enable_load_extension(True)
-    conn.load_extension('/path/to/vec0')  # Update with your actual path
-except Exception as e:
-    raise RuntimeError(f"Failed to load sqlite-vec extension: {e}")
+```bash
+python -m pip install sqlite-vec
 ```
 
-- If the extension is not loaded, vector operations will fail with `no such module: vec0`.
-- Ensure your Python environment allows extension loading (may require admin privileges).
+This will automatically build and install the extension for your platform (if supported).
+
+### How to Use sqlite-vec in Python
+After installation, you can use sqlite-vec directly in your Python code. See the official docs for advanced usage:
+https://github.com/asg017/sqlite-vec#python
 
 ### Troubleshooting
-- If you see `sqlite3.OperationalError: no such module: vec0`, the extension is not loaded or not found.
-- Check your Python, SQLite, and OS compatibility with the extension.
+- If installation fails, check your Python, pip, and OS compatibility with the package.
+- If you see `sqlite3.OperationalError: no such module: vec0`, the extension is not loaded or not found. Reinstall or consult the sqlite-vec documentation.
 
 ---
 
