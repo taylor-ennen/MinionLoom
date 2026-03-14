@@ -19,16 +19,9 @@ $dotGithub = Split-Path -Parent $minionRoot
 # Repository root is the parent of .github
 $repoRoot = Split-Path -Parent $dotGithub
 
-# Prefer existing VS Code config locations; fall back to the standard .vscode folder.
-$possibleDirs = @(
-    (Join-Path $repoRoot '.vscode'),
-    (Join-Path $repoRoot '.github\vscode')
-)
-
-# Pick the first existing location, otherwise default to .vscode
-$vscodeDir = $possibleDirs | Where-Object { Test-Path $_ } | Select-Object -First 1
-if (-not $vscodeDir) {
-    $vscodeDir = Join-Path $projectRoot '.vscode'
+# Always use the standard workspace .vscode folder (repo root).
+$vscodeDir = Join-Path $repoRoot '.vscode'
+if (-not (Test-Path $vscodeDir)) {
     New-Item -ItemType Directory -Path $vscodeDir -Force | Out-Null
 }
 
