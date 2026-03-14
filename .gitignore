@@ -12,6 +12,7 @@
 # Allow the minions plugin folder (only this folder is tracked)
 !/.github/
 /.github/*
+!/.github/copilot-instructions.md
 !.github/minions/
 !.github/minions/**
 
