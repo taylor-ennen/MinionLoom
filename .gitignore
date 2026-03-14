@@ -1,8 +1,15 @@
-.venv
-.venv/
-__pycache__/
-*.pyc
-*.pyo
-*.db
-*.sqlite
-hook.log
+# Ignore everything by default
+/*
+
+# Allow git metadata and ignore config
+!.gitignore
+
+# Allow the minions plugin folder (only this folder is tracked)
+!.github/
+!.github/minions/
+!.github/minions/**
+
+# Optional: if you ever want to allow additional project files, unignore them explicitly.
+# Example:
+# !/some-other-folder/
+# !/some-file.ext
