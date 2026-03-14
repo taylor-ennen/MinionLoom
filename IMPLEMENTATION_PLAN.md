@@ -1,13 +1,21 @@
 # MinionLoom Enhancement Implementation Plan
 
-## Overview
-This document tracks the implementation plan and progress for the following enhancements:
-- Promptable `/research` and `/status` commands using Copilot chat instructions and documentation
-- Dashboard redesign with a CLI-inspired look (still Flask-based)
-- Replace all 'Local Minion' branding with '< MinionLoom >' (completed)
-- Commit each change separately
-- Use minions to optimize Copilot chat token usage where possible
-- Test features and maintain project cohesion
+## Purpose
+This document defines goals and a task plan for MinionLoom as a self-contained Copilot plugin (dropped into `.github/minions/`).
+It is intended to be used by both humans and AI-driven agents running inside the repo.
+
+## High-Level Goals
+- The core system must run solely from `.github/minions/` (no hidden side effects outside the folder unless explicitly requested).
+- Provide prompt-driven automation via Copilot chat and the Minion orchestrator (`orchestrator/dag.py`).
+- Support easy setup and integration in existing repos (VS Code prompt paths, prompt discovery, installer behavior).
+- Keep changes atomic, reproducible, and traceable through git worktrees.
+
+## Immediate Objectives
+- Implement promptable `/research`, `/status`, and `/continue` commands.
+- Ensure `/status` is actually executable through the orchestrator and dashboard.
+- Redesign the dashboard UI to a CLI-inspired layout while preserving telemetry.
+- Replace all branding with `< MinionLoom >` and confirm no residual legacy naming.
+- Ensure the installer behaves non-destructively by default and warns when it writes workspace files.
 
 ## Task Breakdown
 
@@ -33,10 +41,10 @@ This document tracks the implementation plan and progress for the following enha
 
 ## Progress Log
 - [ ] Plan drafted (this file)
-- [ ] `/research` and `/status` commands implemented
+- [x] `/research` and `/status` commands implemented
 - [ ] Dashboard redesign complete
-- [ ] Branding replaced
-- [ ] All changes committed
+- [x] Branding replaced
+- [x] All changes committed
 - [ ] Features tested and validated
 
 ---
