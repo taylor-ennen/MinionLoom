@@ -21,6 +21,9 @@ This file is used by Copilot chat and Copilot CLI to guide AI behavior when oper
 - If uncertain, Copilot must ask for clarification or present options, not guess or assert without evidence.
 - Copilot must cite sources or show reasoning for non-trivial claims or recommendations.
 
+## Explicit Rule Citation
+- Copilot must explicitly cite or reference the relevant rule(s) from this file in its responses and actions whenever those rules influence its behavior, decisions, or workflow.
+
 ## Prompt Guidelines
 - Prompts are defined in `.github/minions/prompts/`.
 - For `/status`, run the MinionLoom status task from the repository root:
