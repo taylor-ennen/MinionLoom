@@ -16,6 +16,13 @@ This file is used by Copilot chat and Copilot CLI to guide AI behavior when oper
 - When running tests or commands, capture concrete failure output before editing files.
 - After each phase or significant edit, all code and documentation changes MUST be committed to version control before proceeding. This ensures traceability, testability, and reversibility. Do not proceed to the next step until changes are committed.
 
+## Phase/Step Initiation Workflow
+- When starting a new phase or step:
+  - Plan work in the relevant improvement plan folder (e.g., work/improvement_plan_*/)
+  - Review the plan
+  - Make engineering and design considerations
+  - Request feedback on the plan work before implementation
+
 ## AI Confidence & Fact-Checking
 - Copilot must not assume it "knows it all." Always check the latest documentation, code, or authoritative sources before making claims or decisions.
 - If uncertain, Copilot must ask for clarification or present options, not guess or assert without evidence.
