@@ -1,46 +1,113 @@
-# MinionLoom AI/Prompt Setup Guide
+# MinionLoom Installation & Setup (AI-friendly)
 
-## Overview
-This guide documents the required setup for AI agents, Copilot CLI/chat, and VS Code extensions to correctly discover and use MinionLoom slash command prompts. It ensures that any AI or developer can follow these steps to enable promptable commands in this project.
+This document is the single source of truth for how MinionLoom must be installed and configured so that it works correctly.
+It is written to be directly usable by AI agents and by humans.
+
+---
+
+## 1. Requirements (must be satisfied first)
+
+### 1.1 Python
+- Python 3.10+ must be available on `PATH`.
+
+**Example:**
+```bash
+python --version
+```
+
+### 1.2 Git
+- Git must be available on `PATH`.
+
+**Example:**
+```bash
+git --version
+```
+
+### 1.3 GitHub Copilot CLI
+- The Copilot CLI must be installed and available as `copilot`.
+
+**Example:**
+```bash
+copilot --version
+```
 
 ---
 
-## 1. Prompt Directory Structure
-- **Canonical prompt location:**
-  - `.github/minions/prompts/`
-- All prompt files (e.g., `research.prompt.md`, `status.prompt.md`, `continue.prompt.md`) must be placed here.
+## 2. Install Python dependencies (required)
 
-## 2. AI/Extension Configuration
-- **Copilot CLI/chat and any prompt-consuming tool must be configured to scan:**
-  - `.github/minions/prompts/`
-- If a tool defaults to `.github/prompts/`, update its configuration to include `.github/minions/prompts/`.
-- If configuration is not possible, request support from the tool's maintainers or consider a symlink (not recommended for this project).
+MinionLoom depends on Python packages listed in:
+- `.github/minions/requirements.txt`
 
-## 3. Project Integration Steps
-1. Place all prompt files in `.github/minions/prompts/`.
-2. Document this path in the main `README.md` and in this setup guide.
-3. (Optional) Run `.github/minions/scripts/setup-vscode-prompt-path.ps1` to update your VS Code workspace settings to include the prompt path.
-4. Ensure all AI agents and extensions are pointed to this directory for prompt discovery.
-5. Test prompt discovery by running `/research`, `/status`, and `/continue` in Copilot CLI/chat or your AI agent.
+### Option A (preferred): use your existing Python environment
+If you already have a venv or Python environment you want to use, activate it and run:
 
-## 4. Example Prompts
-- `/research` → `.github/minions/prompts/research.prompt.md`
-- `/status` → `.github/minions/prompts/status.prompt.md`
-- `/continue` → `.github/minions/prompts/continue.prompt.md`
+```bash
+python -m pip install -r .github/minions/requirements.txt
+```
 
-## 5. Docs / Single Source of Truth
-- The canonical prompt integration docs live here in `AI_SETUP_GUIDE.md`.
-- The old `prompts/README.md` is redundant and has been removed to avoid confusion.
+### Option B: create a new venv in this repository (recommended for clean installs)
 
-## 5. Troubleshooting
-- If a prompt does not appear, verify:
-  - The prompt file exists in `.github/minions/prompts/`.
-  - The tool/extension is configured to scan this directory.
-  - There are no typos in the prompt file names.
+```bash
+python -m venv .venv
+# Activate (platform-specific):
+# Windows (PowerShell): .\.venv\Scripts\Activate.ps1
+# macOS/Linux: source .venv/bin/activate
 
-## 6. Updating This Guide
-- Any changes to prompt management or AI integration must be reflected in this guide.
-- Keep this file up to date for all contributors and AI agents.
+python -m pip install -r .github/minions/requirements.txt
+```
 
 ---
-This guide ensures MinionLoom's prompt system is discoverable and maintainable for both humans and AI agents.
+
+## 3. Configure prompt discovery (required)
+
+MinionLoom’s prompts live in:
+- `.github/minions/prompts/`
+
+Any tool that consumes Copilot prompts must be configured to scan that path.
+
+### Example: VS Code setting
+```json
+{
+  "copilot.prompts.paths": [
+    ".github/minions/prompts"
+  ]
+}
+```
+
+---
+
+## 4. Verify installation (minimal sanity checks)
+
+### 4.1 Check that Python deps load
+```bash
+python -c "import orchestrator; print('ok')"
+```
+
+### 4.2 Check that prompts are usable (status command)
+```bash
+python .github/minions/orchestrator/dag.py status
+```
+
+If these succeed, the environment is correctly configured.
+
+---
+
+## 5. How to use the prompts
+
+Once configured, use Copilot CLI/chat with the following slash commands:
+- `/research`
+- `/status`
+- `/continue`
+
+Each maps to a file in `.github/minions/prompts/`.
+
+---
+
+## 6. Notes for AI agents
+- Treat this file as the authoritative install procedure.
+- Run the checks exactly as written; if a command fails, report the failure output.
+- Do not assume any paths exist unless explicitly created by a command in this document.
+
+---
+
+This guide is intentionally procedural and minimally prescriptive so it can be followed reliably by both humans and AI agents.
