@@ -208,7 +208,9 @@ def initialize_database() -> sqlite3.Connection:
     connection.execute(
         '''
         CREATE VIRTUAL TABLE IF NOT EXISTS vector_memory USING vec0(
-            embedding float[1536]
+            task_id TEXT UNIQUE,
+            embedding float[768],
+            spec TEXT
         )
         '''
     )
@@ -755,71 +757,47 @@ def run_checked(command: list[str], cwd: Path, phase: str, log_queue: QueueLike 
 
 
 def setup_environment(task_id: str, connection: sqlite3.Connection, log_queue: QueueLike | None) -> TaskContext:
+    from .worktree_manager import ensure_worktree
     phase_id = start_phase(
         connection,
         task_id,
         'setup',
         detail='Provision worktree and attach shared virtual environment',
     )
-    command = ['pwsh', '-NoProfile', '-File', str(ENV_MANAGER_PATH), '-TaskID', task_id]
-    emit_log('[setup] invoking env_manager.ps1', log_queue)
     try:
-        result = execute_process(
-            command,
-            cwd=MINION_ROOT,
-            phase='setup',
+        worktree_path = ensure_worktree(task_id)
+        branch_name = subprocess.run(
+            ['git', 'branch', '--show-current'],
+            cwd=str(worktree_path),
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace',
+            check=False,
+        ).stdout.strip()
+        context = TaskContext(
             task_id=task_id,
-            connection=connection,
-            log_queue=log_queue,
-            log_stdout=False,
-            log_stderr=True,
+            worktree_path=worktree_path,
+            branch_name=branch_name,
+            minion_designation=build_minion_designation(task_id),
+            task_type=determine_task_type(task_id),
         )
+        update_run(
+            connection,
+            task_id,
+            branch_name=branch_name,
+            worktree_path=str(worktree_path),
+            minion_designation=context.minion_designation,
+        )
+        ensure_branch_visible_in_graph(context, connection, log_queue)
+        finish_phase(connection, phase_id, status='completed', detail=f'Assigned worktree {worktree_path.name}')
+        return context
     except ControlRequestedError as error:
         finish_phase(connection, phase_id, status='interrupted', detail=str(error))
         raise
-
-    raw_stdout = result.stdout.strip()
-    if not raw_stdout:
-        finish_phase(connection, phase_id, status='failed', detail='env_manager.ps1 did not emit JSON to stdout')
-        raise MinionExecutionError('env_manager.ps1 did not emit JSON to stdout.')
-
-    try:
-        payload = json.loads(raw_stdout)
-    except json.JSONDecodeError as error:
-        finish_phase(connection, phase_id, status='failed', detail=f'Unparseable setup output: {raw_stdout}')
-        raise MinionExecutionError(f'Unable to parse env_manager.ps1 output: {raw_stdout}') from error
-
-    if result.returncode != 0 or payload.get('status') != 'success':
-        finish_phase(connection, phase_id, status='failed', detail=f'Setup failure payload: {payload}')
-        raise MinionExecutionError(f'env_manager.ps1 reported failure: {payload}')
-
-    worktree_path = Path(str(payload['worktree_path']))
-    branch_name = subprocess.run(
-        ['git', 'branch', '--show-current'],
-        cwd=str(worktree_path),
-        capture_output=True,
-        text=True,
-        encoding='utf-8',
-        errors='replace',
-        check=False,
-    ).stdout.strip()
-    context = TaskContext(
-        task_id=task_id,
-        worktree_path=worktree_path,
-        branch_name=branch_name,
-        minion_designation=build_minion_designation(task_id),
-        task_type=determine_task_type(task_id),
-    )
-    update_run(
-        connection,
-        task_id,
-        branch_name=branch_name,
-        worktree_path=str(worktree_path),
-        minion_designation=context.minion_designation,
-    )
-    ensure_branch_visible_in_graph(context, connection, log_queue)
-    finish_phase(connection, phase_id, status='completed', detail=f'Assigned worktree {worktree_path.name}')
-    return context
+    except Exception as error:
+        finish_phase(connection, phase_id, status='failed', detail=str(error))
+        raise MinionExecutionError(f'Worktree setup failed: {error}')
 
 
 def hydrate_requirements(context: TaskContext, connection: sqlite3.Connection, log_queue: QueueLike | None) -> str:

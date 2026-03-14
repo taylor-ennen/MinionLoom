@@ -1,11 +1,16 @@
 # MinionLoom Installation & Setup (AI-friendly)
 
-This document is the single source of truth for how MinionLoom must be installed and configured so that it works correctly.
-It is written to be directly usable by AI agents and by humans.
+This document is the single source of truth for how MinionLoom must be installed, configured, and extended. It is written to be directly usable by AI agents and by humans.
+
+**Important architectural rule:**
+- All orchestration, state, and task management must be handled in Python and persisted in the database.
+- Do not use subprocesses to emit/parse JSON for internal state.
+- All new features and refactors must follow this pattern. (See Phase 0.1 plan, March 13, 2026.)
 
 ---
 
 ## 1. Requirements (must be satisfied first)
+
 
 ### 1.1 Python
 - Python 3.10+ must be available on `PATH`.
@@ -15,6 +20,7 @@ It is written to be directly usable by AI agents and by humans.
 python --version
 ```
 
+
 ### 1.2 Git
 - Git must be available on `PATH`.
 
@@ -22,6 +28,7 @@ python --version
 ```bash
 git --version
 ```
+
 
 ### 1.3 GitHub Copilot CLI
 - The Copilot CLI must be installed and available as `copilot`.
@@ -76,6 +83,7 @@ Any tool that consumes Copilot prompts must be configured to scan that path.
 
 ---
 
+
 ## 4. Verify installation (minimal sanity checks)
 
 ### 4.1 Check that Python deps load
@@ -92,6 +100,18 @@ If these succeed, the environment is correctly configured.
 
 ---
 
+## 5. Worktree Management (as of March 13, 2026)
+
+- MinionLoom provisions isolated git worktrees for each task using Python-native logic (see `.github/minions/orchestrator/worktree_manager.py`).
+- All orchestration and state are managed in Python and persisted in the SQLite database (`minion_state.db`).
+- The previous PowerShell-based `env_manager.ps1` is no longer used or required.
+- Worktree paths and status are updated directly in the database; no subprocess-based JSON state passing is used.
+- Contributors and AI agents must follow this pattern for all future orchestration and state management.
+
+---
+
+---
+
 ## 5. How to use the prompts
 
 Once configured, use Copilot CLI/chat with the following slash commands:
@@ -103,8 +123,10 @@ Each maps to a file in `.github/minions/prompts/`.
 
 ---
 
-## 6. Notes for AI agents
-- Treat this file as the authoritative install procedure.
+
+## 6. Notes for AI agents and contributors
+- Treat this file as the authoritative install and extension procedure.
+- All orchestration, state, and task management must be handled in Python and persisted in the database. Do not use subprocesses to emit/parse JSON for internal state.
 - Run the checks exactly as written; if a command fails, report the failure output.
 - Do not assume any paths exist unless explicitly created by a command in this document.
 
