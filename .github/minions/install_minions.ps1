@@ -106,7 +106,7 @@ $templateTasksPath = Join-Path $minionRoot 'templates\tasks.json'
 $targetTasksPath = Join-Path $parentVscodeDir 'tasks.json'
 $templateInstructionsPath = Join-Path $minionRoot 'templates\copilot-instructions.md'
 $targetInstructionsPath = Join-Path $parentGithubDir 'copilot-instructions.md'
-$venvPath = Join-Path $minionRoot '.venv'
+$venvPath = Join-Path $projectRoot '.venv'
 $pythonLauncher = Get-PythonCommand
 
 if (-not (Test-Path -LiteralPath $venvPath)) {

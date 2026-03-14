@@ -104,7 +104,7 @@ try {
 
     Set-Location $worktreePath
 
-    $sharedVenvPath = Join-Path $minionRoot '.venv'
+    $sharedVenvPath = Join-Path $workspaceRoot '.venv'
     if (-not (Test-Path -LiteralPath $sharedVenvPath)) {
         throw "Shared virtual environment not found at $sharedVenvPath. Run install_minions.ps1 first."
     }

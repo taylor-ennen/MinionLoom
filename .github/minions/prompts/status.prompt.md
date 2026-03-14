@@ -15,8 +15,7 @@ Use this command to:
 To get the current MinionLoom status from this repository, you can run:
 
 ```powershell
-cd .github/minions
-.\.venv\Scripts\python.exe orchestrator\dag.py status
+.\.venv\Scripts\python.exe .github/minions/orchestrator/dag.py status
 ```
 ## Example
 /status system

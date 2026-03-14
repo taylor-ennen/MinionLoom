@@ -17,10 +17,9 @@ This file is used by Copilot chat and Copilot CLI to guide AI behavior when oper
 
 ## Prompt Guidelines
 - Prompts are defined in `.github/minions/prompts/`.
-- For `/status`, run the MinionLoom status task:
+- For `/status`, run the MinionLoom status task from the repository root:
   ```powershell
-  cd .github/minions
-  .\.venv\Scripts\python.exe orchestrator\dag.py status
+  .\.venv\Scripts\python.exe .github/minions/orchestrator/dag.py status
   ```
 - For `/continue`, follow the current implementation plan and take the next logical step.
 

@@ -31,18 +31,16 @@ This file lists the core work items needed to meet the project goals and ensure 
 ## Using the Minion System for Work
 MinionLoom includes an orchestrator engine (`orchestrator/dag.py`) that can run tasks via Git worktrees and track state in `minion_state.db`.
 
-To run a diagnostic task:
+To run a diagnostic task (from the repository root):
 
 ```powershell
-cd .github/minions
-.\.venv\Scripts\python.exe orchestrator\dag.py diagnostic-local-clean
+.\.venv\Scripts\python.exe .github/minions/orchestrator/dag.py diagnostic-local-clean
 ```
 
-To configure VS Code prompt discovery:
+To configure VS Code prompt discovery (from the repository root):
 
 ```powershell
-cd .github/minions
-.\.venv\Scripts\powershell.exe scripts\setup-vscode-prompt-path.ps1
+.\.venv\Scripts\powershell.exe .github/minions/scripts/setup-vscode-prompt-path.ps1
 ```
 
 ---
