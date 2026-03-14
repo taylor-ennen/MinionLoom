@@ -14,6 +14,7 @@ This file is used by Copilot chat and Copilot CLI to guide AI behavior when oper
 - Prefer minimal standard-library solutions over heavy frameworks unless a dependency is already required for the task.
 - Keep diffs surgical, preserve existing behavior when possible, and make error handling explicit.
 - When running tests or commands, capture concrete failure output before editing files.
+- After each phase or significant edit, all code and documentation changes MUST be committed to version control before proceeding. This ensures traceability, testability, and reversibility. Do not proceed to the next step until changes are committed.
 
 ## Prompt Guidelines
 - Prompts are defined in `.github/minions/prompts/`.
